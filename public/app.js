@@ -17,15 +17,28 @@ app.get(['/api/health', '/slipgaji_smpia9/api/health'], (req, res) => {
   res.status(200).json({ status: 'ok', app: 'slip gaji id SMPI Al Azhar 9' });
 });
 
-// Explicit Static Asset Handler (Handles both /assets/* and /slipgaji_smpia9/assets/*)
+// Explicit Static Asset Handler
 app.use((req, res, next) => {
   const reqPath = req.path || req.url || '';
   
-  // Match asset files
+  // 1. Match any request to /assets/... or /slipgaji_smpia9/assets/...
   const assetMatch = reqPath.match(/(?:^|\/)(assets\/[^?#]+)/);
   if (assetMatch) {
-    const assetSubPath = assetMatch[1]; // e.g. "assets/index-CLIyzC-A.js"
-    const filePath = path.join(PUBLIC_DIR, assetSubPath);
+    const assetSubPath = assetMatch[1]; // e.g. "assets/index-90AFLiRH.js"
+    let filePath = path.join(PUBLIC_DIR, assetSubPath);
+
+    // If exact file does not exist (e.g. old cached bundle name index-Bqw-iHtW.js requested)
+    if (!fs.existsSync(filePath) && fs.existsSync(ASSETS_DIR)) {
+      const files = fs.readdirSync(ASSETS_DIR);
+      if (assetSubPath.endsWith('.js')) {
+        const foundJs = files.find(f => f.startsWith('index-') && f.endsWith('.js'));
+        if (foundJs) filePath = path.join(ASSETS_DIR, foundJs);
+      } else if (assetSubPath.endsWith('.css')) {
+        const foundCss = files.find(f => f.startsWith('index-') && f.endsWith('.css'));
+        if (foundCss) filePath = path.join(ASSETS_DIR, foundCss);
+      }
+    }
+
     if (fs.existsSync(filePath)) {
       if (filePath.endsWith('.js')) {
         res.setHeader('Content-Type', 'application/javascript; charset=UTF-8');
@@ -43,7 +56,7 @@ app.use((req, res, next) => {
     }
   }
 
-  // Check direct file match in root directory (like favicon, robots, etc.)
+  // 2. Direct static files in root (favicon.ico, manifest, etc.)
   const cleanPath = reqPath.replace(/^\/slipgaji_smpia9/, '').replace(/^\//, '');
   if (cleanPath && cleanPath !== 'index.html') {
     const directFile = path.join(PUBLIC_DIR, cleanPath);
@@ -55,7 +68,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// Serve standard express static as backup
+// Serve standard express static
 app.use(express.static(PUBLIC_DIR));
 app.use('/slipgaji_smpia9', express.static(PUBLIC_DIR));
 
