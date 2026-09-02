@@ -1,0 +1,27 @@
+# Apache .htaccess configuration for DomaiNesia / cPanel Hosting
+# slip gaji id SMPI Al Azhar 9
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+  
+  # Jangan redirect jika file atau direktori fisik ada
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+
+  # Redirect semua request SPA lainnya ke index.html
+  RewriteRule ^ index.html [L]
+</IfModule>
+
+# Keamanan & Optimasi Cache Header
+<IfModule mod_headers.c>
+  # Cegah MIME type sniffing
+  Header set X-Content-Type-Options "nosniff"
+  # Proteksi XSS
+  Header set X-XSS-Protection "1; mode=block"
+  # Cache static assets
+  <FilesMatch "\.(ico|pdf|flv|jpg|jpeg|png|gif|js|css|swf|svg|webp|woff|woff2|ttf|eot)$">
+    Header set Cache-Control "max-age=31536000, public"
+  </FilesMatch>
+</IfModule>

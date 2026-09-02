@@ -1,0 +1,6 @@
+{
+  "name": "slip gaji id SMPI Al Azhar 9",
+  "description": "Sistem Informasi dan Manajemen Slip Gaji Digital SMP Islam Al Azhar 9 Bekasi - Yayasan Wakaf Al Muhajirien Jakapermai.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
