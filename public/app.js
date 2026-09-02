@@ -5,48 +5,37 @@ const fs = require('fs');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// 1. Auto-redirect /slipgaji_smpia9 to /slipgaji_smpia9/ (with trailing slash)
-// This ensures browser relative asset paths like ./assets/index.js resolve correctly
-app.use((req, res, next) => {
-  const urlPath = req.path || req.url;
-  if (urlPath === '/slipgaji_smpia9' && !req.originalUrl.endsWith('/')) {
-    return res.redirect(301, '/slipgaji_smpia9/');
-  }
-  next();
+// Root & Health check for cPanel availability tester
+app.get('/api/health', (req, res) => {
+  res.status(200).json({ status: 'ok', app: 'slip gaji id SMPI Al Azhar 9' });
 });
 
-// 2. Serve static files from root and subpath
-app.use(express.static(__dirname));
-app.use('/slipgaji_smpia9', express.static(__dirname));
+// Serve static assets with permissive cache headers
 app.use('/assets', express.static(path.join(__dirname, 'assets')));
 app.use('/slipgaji_smpia9/assets', express.static(path.join(__dirname, 'assets')));
+app.use(express.static(__dirname));
+app.use('/slipgaji_smpia9', express.static(__dirname));
 
-// 3. API health endpoint
-app.get(['/api/health', '/slipgaji_smpia9/api/health'], (req, res) => {
-  res.json({ status: 'ok', app: 'slip gaji id SMPI Al Azhar 9' });
-});
-
-// 4. SPA fallback: Send index.html for page routes
-app.get('*', (req, res) => {
-  const cleanPath = (req.path || '').replace(/^\/slipgaji_smpia9/, '');
-  
-  // Check if requesting an asset file directly
-  if (cleanPath.startsWith('/assets/') || cleanPath.endsWith('.js') || cleanPath.endsWith('.css') || cleanPath.endsWith('.svg') || cleanPath.endsWith('.png') || cleanPath.endsWith('.jpg')) {
-    const assetFile = path.join(__dirname, cleanPath);
-    if (fs.existsSync(assetFile)) {
-      return res.sendFile(assetFile);
-    }
-    return res.status(404).send('Asset not found');
+// Send index.html for all other routes
+app.use((req, res) => {
+  const indexPath = path.join(__dirname, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    res.setHeader('Content-Type', 'text/html; charset=UTF-8');
+    res.status(200).sendFile(indexPath);
+  } else {
+    res.status(200).send('<html><body><h1>Slip Gaji SMPI Al Azhar 9</h1><p>Application is loading...</p></body></html>');
   }
-
-  // Otherwise serve SPA index.html
-  res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`Server slip gaji SMPI Al Azhar 9 is running on port ${PORT}`);
-});
+// Start listening (Passenger in cPanel binds automatically)
+if (typeof(PhusionPassenger) !== 'undefined') {
+  app.listen('passenger');
+} else {
+  app.listen(PORT, () => {
+    console.log(`Server slip gaji SMPI Al Azhar 9 is running on port ${PORT}`);
+  });
+}
 
 module.exports = app;
+
 
