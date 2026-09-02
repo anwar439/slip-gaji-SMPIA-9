@@ -3,6 +3,7 @@
 
 <IfModule mod_rewrite.c>
   RewriteEngine On
+  RewriteBase /
   
   # Jangan redirect jika file atau direktori fisik ada
   RewriteCond %{REQUEST_FILENAME} -f [OR]
@@ -10,7 +11,7 @@
   RewriteRule ^ - [L]
 
   # Redirect semua request SPA lainnya ke index.html
-  RewriteRule . index.html [L]
+  RewriteRule ^ index.html [L]
 </IfModule>
 
 # Keamanan & Optimasi Cache Header

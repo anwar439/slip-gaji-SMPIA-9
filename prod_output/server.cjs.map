@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../server.ts"],
+  "sourcesContent": ["import express from 'express';\nimport path from 'path';\n\nconst app = express();\nconst PORT = process.env.PORT || 3000;\n\nconst staticDir = process.cwd();\napp.use(express.static(staticDir));\n\napp.get('/api/health', (req, res) => {\n  res.json({ status: 'ok', app: 'slip gaji id SMPI Al Azhar 9' });\n});\n\n// SPA fallback\napp.get('*', (req, res) => {\n  res.sendFile(path.join(staticDir, 'index.html'));\n});\n\napp.listen(PORT, '0.0.0.0', () => {\n  console.log(`Server slip gaji id SMPI Al Azhar 9 running on port ${PORT}`);\n});\n"],
+  "mappings": ";;;;;;;;;;;;;;;;;;;;;;;;AAAA,qBAAoB;AACpB,kBAAiB;AAEjB,IAAM,UAAM,eAAAA,SAAQ;AACpB,IAAM,OAAO,QAAQ,IAAI,QAAQ;AAEjC,IAAM,YAAY,QAAQ,IAAI;AAC9B,IAAI,IAAI,eAAAA,QAAQ,OAAO,SAAS,CAAC;AAEjC,IAAI,IAAI,eAAe,CAAC,KAAK,QAAQ;AACnC,MAAI,KAAK,EAAE,QAAQ,MAAM,KAAK,+BAA+B,CAAC;AAChE,CAAC;AAGD,IAAI,IAAI,KAAK,CAAC,KAAK,QAAQ;AACzB,MAAI,SAAS,YAAAC,QAAK,KAAK,WAAW,YAAY,CAAC;AACjD,CAAC;AAED,IAAI,OAAO,MAAM,WAAW,MAAM;AAChC,UAAQ,IAAI,uDAAuD,IAAI,EAAE;AAC3E,CAAC;",
+  "names": ["express", "path"]
+}
