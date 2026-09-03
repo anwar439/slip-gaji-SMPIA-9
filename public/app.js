@@ -1,95 +1,125 @@
-const express = require('express');
+const http = require('http');
 const path = require('path');
 const fs = require('fs');
 
-const app = express();
 const PORT = process.env.PORT || 3000;
-
-// Set root directory
 const PUBLIC_DIR = __dirname;
 const ASSETS_DIR = path.join(PUBLIC_DIR, 'assets');
 
-// Disable x-powered-by
-app.disable('x-powered-by');
-
-// Healthcheck endpoint for cPanel
-app.get(['/api/health', '/slipgaji_smpia9/api/health'], (req, res) => {
-  res.status(200).json({ status: 'ok', app: 'slip gaji id SMPI Al Azhar 9' });
+// Prevent unexpected process crashes
+process.on('uncaughtException', (err) => {
+  console.error('[SlipGaji] Uncaught Exception:', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[SlipGaji] Unhandled Rejection:', reason);
 });
 
-// Explicit Static Asset Handler
-app.use((req, res, next) => {
-  const reqPath = req.path || req.url || '';
-  
-  // 1. Match any request to /assets/... or /slipgaji_smpia9/assets/...
-  const assetMatch = reqPath.match(/(?:^|\/)(assets\/[^?#]+)/);
+const MIME_TYPES = {
+  '.html': 'text/html; charset=UTF-8',
+  '.js': 'application/javascript; charset=UTF-8',
+  '.mjs': 'application/javascript; charset=UTF-8',
+  '.css': 'text/css; charset=UTF-8',
+  '.json': 'application/json; charset=UTF-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+  '.eot': 'application/vnd.ms-fontobject',
+  '.pdf': 'application/pdf',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+};
+
+const server = http.createServer((req, res) => {
+  const parsedUrl = new URL(req.url || '/', 'http://localhost');
+  let pathname = decodeURIComponent(parsedUrl.pathname);
+
+  // Healthcheck endpoint for cPanel & monitoring
+  if (pathname === '/api/health' || pathname === '/slipgaji_smpia9/api/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=UTF-8' });
+    res.end(JSON.stringify({ status: 'ok', app: 'Slip Gaji SMPI Al Azhar 9' }));
+    return;
+  }
+
+  // Strip possible subfolder prefix
+  pathname = pathname.replace(/^\/slipgaji_smpia9/, '');
+  if (!pathname || pathname === '/') {
+    pathname = '/index.html';
+  }
+
+  // 1. Check for asset files
+  const assetMatch = pathname.match(/(?:^|\/)(assets\/[^?#]+)/);
   if (assetMatch) {
-    const assetSubPath = assetMatch[1]; // e.g. "assets/index-90AFLiRH.js"
-    let filePath = path.join(PUBLIC_DIR, assetSubPath);
+    const assetSubPath = assetMatch[1];
+    let candidatePath = path.join(PUBLIC_DIR, assetSubPath);
 
-    // If exact file does not exist (e.g. old cached bundle name index-Bqw-iHtW.js requested)
-    if (!fs.existsSync(filePath) && fs.existsSync(ASSETS_DIR)) {
-      const files = fs.readdirSync(ASSETS_DIR);
-      if (assetSubPath.endsWith('.js')) {
-        const foundJs = files.find(f => f.startsWith('index-') && f.endsWith('.js'));
-        if (foundJs) filePath = path.join(ASSETS_DIR, foundJs);
-      } else if (assetSubPath.endsWith('.css')) {
-        const foundCss = files.find(f => f.startsWith('index-') && f.endsWith('.css'));
-        if (foundCss) filePath = path.join(ASSETS_DIR, foundCss);
+    // Smart fallback if an older hashed bundle is requested
+    if (!fs.existsSync(candidatePath) && fs.existsSync(ASSETS_DIR)) {
+      try {
+        const files = fs.readdirSync(ASSETS_DIR);
+        if (assetSubPath.endsWith('.js')) {
+          const foundJs = files.find(f => f.startsWith('index-') && f.endsWith('.js'));
+          if (foundJs) candidatePath = path.join(ASSETS_DIR, foundJs);
+        } else if (assetSubPath.endsWith('.css')) {
+          const foundCss = files.find(f => f.startsWith('index-') && f.endsWith('.css'));
+          if (foundCss) candidatePath = path.join(ASSETS_DIR, foundCss);
+        }
+      } catch (e) {
+        // ignore
       }
     }
 
-    if (fs.existsSync(filePath)) {
-      if (filePath.endsWith('.js')) {
-        res.setHeader('Content-Type', 'application/javascript; charset=UTF-8');
-      } else if (filePath.endsWith('.css')) {
-        res.setHeader('Content-Type', 'text/css; charset=UTF-8');
-      } else if (filePath.endsWith('.svg')) {
-        res.setHeader('Content-Type', 'image/svg+xml');
-      } else if (filePath.endsWith('.png')) {
-        res.setHeader('Content-Type', 'image/png');
-      } else if (filePath.endsWith('.ico')) {
-        res.setHeader('Content-Type', 'image/x-icon');
-      }
-      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-      return res.sendFile(filePath);
+    if (fs.existsSync(candidatePath) && fs.statSync(candidatePath).isFile()) {
+      const ext = path.extname(candidatePath).toLowerCase();
+      const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+      res.writeHead(200, {
+        'Content-Type': contentType,
+        'Cache-Control': 'public, max-age=31536000, immutable'
+      });
+      fs.createReadStream(candidatePath).pipe(res);
+      return;
     }
   }
 
-  // 2. Direct static files in root (favicon.ico, manifest, etc.)
-  const cleanPath = reqPath.replace(/^\/slipgaji_smpia9/, '').replace(/^\//, '');
-  if (cleanPath && cleanPath !== 'index.html') {
-    const directFile = path.join(PUBLIC_DIR, cleanPath);
-    if (fs.existsSync(directFile) && fs.statSync(directFile).isFile()) {
-      return res.sendFile(directFile);
-    }
+  // 2. Direct static files in root (e.g. favicon.ico, images)
+  const directPath = path.join(PUBLIC_DIR, pathname);
+  if (fs.existsSync(directPath) && fs.statSync(directPath).isFile()) {
+    const ext = path.extname(directPath).toLowerCase();
+    const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+    res.writeHead(200, {
+      'Content-Type': contentType,
+      'Cache-Control': ext === '.html' ? 'no-cache' : 'public, max-age=86400'
+    });
+    fs.createReadStream(directPath).pipe(res);
+    return;
   }
 
-  next();
-});
-
-// Serve standard express static
-app.use(express.static(PUBLIC_DIR));
-app.use('/slipgaji_smpia9', express.static(PUBLIC_DIR));
-
-// Fallback: Send index.html with UTF-8 charset
-app.use((req, res) => {
+  // 3. SPA Fallback: Serve index.html
   const indexPath = path.join(PUBLIC_DIR, 'index.html');
   if (fs.existsSync(indexPath)) {
-    res.setHeader('Content-Type', 'text/html; charset=UTF-8');
-    res.status(200).sendFile(indexPath);
+    res.writeHead(200, {
+      'Content-Type': 'text/html; charset=UTF-8',
+      'Cache-Control': 'no-cache'
+    });
+    fs.createReadStream(indexPath).pipe(res);
   } else {
-    res.status(200).send('<!doctype html><html><body><h1>Slip Gaji SMPI Al Azhar 9</h1><p>Memuat aplikasi...</p></body></html>');
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=UTF-8' });
+    res.end('<!doctype html><html><head><meta charset="utf-8"><title>Slip Gaji SMPI Al Azhar 9</title></head><body><h1>Slip Gaji SMPI Al Azhar 9</h1><p>Memuat aplikasi...</p></body></html>');
   }
 });
 
-// Listen on Passenger socket or standalone port
-if (typeof(PhusionPassenger) !== 'undefined') {
-  app.listen('passenger');
+// Phusion Passenger compatibility:
+// If Passenger is loaded via socket, listen on Passenger socket, otherwise listen on PORT
+if (typeof PhusionPassenger !== 'undefined') {
+  server.listen('passenger');
 } else {
-  app.listen(PORT, () => {
+  server.listen(PORT, () => {
     console.log(`Server Slip Gaji SMPI Al Azhar 9 berjalan di port ${PORT}`);
   });
 }
 
-module.exports = app;
+module.exports = server;
