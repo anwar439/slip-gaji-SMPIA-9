@@ -5,7 +5,7 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
-    base: '/slipgaji_smpia9/',
+    base: './',
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
