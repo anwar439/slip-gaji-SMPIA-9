@@ -1,26 +1,43 @@
 # Apache .htaccess configuration for DomaiNesia / cPanel Hosting
 # slip gaji id SMPI Al Azhar 9
 
+# 1. Pastikan tipe MIME benar untuk ES Module JavaScript (Vite)
+<IfModule mod_mime.c>
+  AddType application/javascript .js .mjs
+  AddType text/css .css
+  AddType image/svg+xml .svg
+  AddType font/woff2 .woff2
+  AddType font/woff .woff
+  AddType application/json .json
+</IfModule>
+
+# 2. Pengaturan Routing Single Page Application (SPA)
 <IfModule mod_rewrite.c>
   RewriteEngine On
-  
+  RewriteBase /slipgaji_smpia9/
+
+  # Auto redirect jika URL dibuka tanpa slash akhir
+  RewriteCond %{REQUEST_URI} ^/slipgaji_smpia9$
+  RewriteRule ^(.*)$ /slipgaji_smpia9/ [R=301,L]
+
   # Jangan redirect jika file atau direktori fisik ada
   RewriteCond %{REQUEST_FILENAME} -f [OR]
   RewriteCond %{REQUEST_FILENAME} -d
   RewriteRule ^ - [L]
 
-  # Redirect semua request SPA lainnya ke index.html
-  RewriteRule . index.html [L]
+  # Redirect semua rute lainnya ke index.html
+  RewriteRule ^ index.html [L]
 </IfModule>
 
-# Keamanan & Optimasi Cache Header
+# 3. Keamanan & Optimasi Cache Header
 <IfModule mod_headers.c>
   # Cegah MIME type sniffing
   Header set X-Content-Type-Options "nosniff"
-  # Proteksi XSS
-  Header set X-XSS-Protection "1; mode=block"
   # Cache static assets
-  <FilesMatch "\.(ico|pdf|flv|jpg|jpeg|png|gif|js|css|swf|svg|webp|woff|woff2|ttf|eot)$">
+  <FilesMatch "\.(ico|pdf|jpg|jpeg|png|gif|js|mjs|css|svg|webp|woff|woff2|ttf|eot)$">
     Header set Cache-Control "max-age=31536000, public"
+  </FilesMatch>
+  <FilesMatch "\.(html|htm)$">
+    Header set Cache-Control "no-cache, no-store, must-revalidate"
   </FilesMatch>
 </IfModule>
