@@ -2,7 +2,9 @@ import React, { useState, useMemo, useRef } from 'react';
 import { useSalary } from '../../context/SalaryContext';
 import { TransportUkkRecord } from '../../types';
 import { calculateTransportUkkRow } from '../../data/mockTransportUkkData';
+import { getIndonesianPeriodLabel } from '../../data/mockData';
 import { formatRupiah } from '../../utils/currencyFormatter';
+import { MonthYearPeriodPicker } from '../MonthYearPeriodPicker';
 import * as XLSX from 'xlsx';
 import {
   Calculator,
@@ -35,6 +37,8 @@ import {
   Clock,
   DollarSign,
   Filter,
+  Save,
+  Calendar,
 } from 'lucide-react';
 
 export const TransportUkkManagement: React.FC = () => {
@@ -46,11 +50,35 @@ export const TransportUkkManagement: React.FC = () => {
     importTransportUkkRecords,
     resetTransportUkkToDefault,
     syncTransportUkkToSlips,
+    saveTransportUkkChanges,
+    initializePeriodTransportUkk,
+    initializePeriodSalarySlips,
     selectedPeriod,
+    setSelectedPeriod,
+    availablePeriods,
+    records,
     getCurrentPeriodConfig,
     employees,
     showToast,
   } = useSalary();
+
+  // Period management for Transport & UKK
+  const [selectedTransportPeriod, setSelectedTransportPeriod] = useState<string>(selectedPeriod || '2026-08');
+  const [recentlySavedRowId, setRecentlySavedRowId] = useState<string | null>(null);
+  const [lastSavedTime, setLastSavedTime] = useState<string>('Baru saja');
+  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving'>('saved');
+
+  // Keep selectedTransportPeriod in sync with global selectedPeriod if it changes externally
+  React.useEffect(() => {
+    if (selectedPeriod && selectedPeriod !== selectedTransportPeriod) {
+      setSelectedTransportPeriod(selectedPeriod);
+    }
+  }, [selectedPeriod]);
+
+  const handlePeriodChange = (newPeriod: string) => {
+    setSelectedTransportPeriod(newPeriod);
+    setSelectedPeriod(newPeriod);
+  };
 
   // Search & Filter State
   const [searchQuery, setSearchQuery] = useState('');
@@ -72,18 +100,35 @@ export const TransportUkkManagement: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const periodConfig = getCurrentPeriodConfig();
 
-  // Distinct units
+  // Find all periods that have records
+  const periodsWithTransportData = useMemo(() => {
+    const periods = new Set<string>();
+    transportUkkRecords.forEach((r) => {
+      if (r.period) periods.add(r.period);
+    });
+    if (periods.size === 0) periods.add('2026-08');
+    return Array.from(periods);
+  }, [transportUkkRecords]);
+
+  // Raw records strictly for active selectedTransportPeriod
+  const currentPeriodRawRecords = useMemo(() => {
+    return transportUkkRecords.filter((r) =>
+      r.period === selectedTransportPeriod || (!r.period && selectedTransportPeriod === '2026-08')
+    );
+  }, [transportUkkRecords, selectedTransportPeriod]);
+
+  // Distinct units for current period
   const availableUnits = useMemo(() => {
     const units = new Set<string>();
-    transportUkkRecords.forEach((r) => {
+    currentPeriodRawRecords.forEach((r) => {
       if (r.unitKerja) units.add(r.unitKerja);
     });
     return Array.from(units).sort();
-  }, [transportUkkRecords]);
+  }, [currentPeriodRawRecords]);
 
-  // Filtered records
+  // Filtered records for current period
   const filteredRecords = useMemo(() => {
-    return transportUkkRecords.filter((r) => {
+    return currentPeriodRawRecords.filter((r) => {
       const matchSearch =
         searchQuery.trim() === '' ||
         r.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -95,7 +140,7 @@ export const TransportUkkManagement: React.FC = () => {
 
       return matchSearch && matchUnit;
     });
-  }, [transportUkkRecords, searchQuery, selectedUnit]);
+  }, [currentPeriodRawRecords, searchQuery, selectedUnit]);
 
   // Aggregated totals
   const stats = useMemo(() => {
@@ -161,23 +206,69 @@ export const TransportUkkManagement: React.FC = () => {
     };
   }, [filteredRecords]);
 
-  // Handle Quick Inline Edit Save
+  // Handle Quick Inline Edit Save with full attendance & UKK/Transport synchronization
   const handleInlineSave = (id: string) => {
     if (!inlineField) {
       setInlineEditId(null);
       return;
     }
     const numVal = parseFloat(inlineValue) || 0;
-    updateTransportUkkRow(id, { [inlineField]: numVal }, true);
+    const targetRow = transportUkkRecords.find((r) => r.id === id);
+    if (!targetRow) return;
+
+    const updates: Partial<TransportUkkRecord> = { [inlineField]: numVal };
+
+    // When attendance fields are edited, recalculate jumlahHadir so UKK Bruto, Transpor, and Uang Makan ALL sync!
+    if (['sakit', 'izin', 'alpa', 'cuti', 'dinluar', 'hariKerja'].includes(inlineField)) {
+      const hk = inlineField === 'hariKerja' ? numVal : (targetRow.hariKerja || 0);
+      const s = inlineField === 'sakit' ? numVal : (targetRow.sakit || 0);
+      const i = inlineField === 'izin' ? numVal : (targetRow.izin || 0);
+      const a = inlineField === 'alpa' ? numVal : (targetRow.alpa || 0);
+      const c = inlineField === 'cuti' ? numVal : (targetRow.cuti || 0);
+      const d = inlineField === 'dinluar' ? numVal : (targetRow.dinluar || 0);
+      const newTidakMasuk = s + i + a + c + d;
+      const newHadir = Math.max(0, hk - newTidakMasuk);
+      updates.jumlahTidakMasuk = newTidakMasuk;
+      updates.jumlahHadir = newHadir;
+    }
+
+    if (inlineField === 'jumlahHadir') {
+      updates.jumlahHadir = numVal;
+      if (targetRow.hariKerja > 0) {
+        updates.jumlahTidakMasuk = Math.max(0, targetRow.hariKerja - numVal);
+      }
+    }
+
+    // Save and update
+    updateTransportUkkRow(id, updates, true);
     setInlineEditId(null);
     setInlineField(null);
+
+    // Save indicator and timestamp
+    setRecentlySavedRowId(id);
+    setLastSavedTime(new Date().toLocaleTimeString('id-ID'));
+    setSaveStatus('saved');
+    setTimeout(() => setRecentlySavedRowId(null), 3500);
   };
 
-  // Sync to Slips handler
+  // Manual save all Transport & UKK changes to Database
+  const handleManualSaveToDatabase = () => {
+    saveTransportUkkChanges(selectedTransportPeriod);
+    setLastSavedTime(new Date().toLocaleTimeString('id-ID'));
+    setSaveStatus('saved');
+  };
+
+  // Initialize new period from master employee data
+  const handleInitializePeriod = () => {
+    initializePeriodTransportUkk(selectedTransportPeriod);
+    setLastSavedTime(new Date().toLocaleTimeString('id-ID'));
+  };
+
+  // Sync to Slips handler - syncs specifically to the selected period
   const handleSyncToSlips = () => {
     setIsSyncing(true);
     setTimeout(() => {
-      const res = syncTransportUkkToSlips(selectedPeriod);
+      syncTransportUkkToSlips(selectedTransportPeriod);
       setIsSyncing(false);
     }, 400);
   };
@@ -351,6 +442,83 @@ export const TransportUkkManagement: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Period Selection & Database Save Toolbar */}
+      <div className="bg-slate-900 border border-emerald-500/30 rounded-2xl p-4 sm:p-5 shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex-1">
+          <MonthYearPeriodPicker
+            id="transport-ukk-period-picker"
+            selectedPeriod={selectedTransportPeriod}
+            onPeriodChange={handlePeriodChange}
+            availablePeriods={availablePeriods}
+            periodsWithData={periodsWithTransportData}
+            theme="emerald"
+            label="Pilih Periode Pengelolaan Transport & UKK:"
+          />
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 self-start md:self-auto pt-2 md:pt-0">
+          <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 text-xs font-semibold shadow-inner">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+            <span>Tersimpan di Database</span>
+            <span className="text-[10px] text-emerald-400/80">({lastSavedTime})</span>
+          </div>
+
+          <button
+            id="save-transport-db-btn"
+            type="button"
+            onClick={handleManualSaveToDatabase}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-xs font-bold shadow-md shadow-emerald-700/30 transition-all cursor-pointer"
+            title="Simpan seluruh data periode ini ke database"
+          >
+            <Save className="w-4 h-4" />
+            Simpan Perubahan
+          </button>
+        </div>
+      </div>
+
+      {/* Empty State Card if Period has no data */}
+      {currentPeriodRawRecords.length === 0 && (
+        <div className="p-6 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border-2 border-dashed border-amber-300 dark:border-amber-700 text-center space-y-3">
+          <div className="w-12 h-12 rounded-full bg-amber-100 dark:bg-amber-900/60 text-amber-600 dark:text-amber-300 flex items-center justify-center mx-auto">
+            <Calendar className="w-6 h-6" />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
+              Belum Ada Data Transport & UKK untuk Periode {getIndonesianPeriodLabel(selectedTransportPeriod)}
+            </h3>
+            <p className="text-xs text-slate-600 dark:text-slate-400 max-w-lg mx-auto mt-1">
+              Setiap bulan memiliki data perhitungan mandiri dan tersimpan di database. Anda dapat menginisialisasi periode ini dari master pegawai atau mengunggah data Excel.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+            <button
+              type="button"
+              onClick={handleInitializePeriod}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-sm cursor-pointer"
+            >
+              <Sparkles className="w-4 h-4" />
+              Inisialisasi Data Periode Ini ({employees.length} Pegawai)
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsImportModalOpen(true)}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold hover:bg-slate-50 cursor-pointer"
+            >
+              <Upload className="w-4 h-4" />
+              Upload Data Excel
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsAddModalOpen(true)}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold hover:bg-slate-50 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              Tambah Manual
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* KPI Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
@@ -666,11 +834,22 @@ export const TransportUkkManagement: React.FC = () => {
                 filteredRecords.map((r, idx) => (
                   <tr
                     key={r.id}
-                    className="hover:bg-emerald-50/40 dark:hover:bg-slate-800/60 transition-colors group"
+                    className={`hover:bg-emerald-50/40 dark:hover:bg-slate-800/60 transition-all group ${
+                      r.id === recentlySavedRowId
+                        ? 'bg-emerald-100/70 dark:bg-emerald-950/60 ring-2 ring-emerald-500/80 z-10'
+                        : ''
+                    }`}
                   >
                     <td className="py-2.5 px-2 text-center font-medium text-slate-400">{idx + 1}</td>
                     <td className="py-2.5 px-3">
-                      <div className="font-semibold text-slate-900 dark:text-slate-100">{r.name}</div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-slate-900 dark:text-slate-100">{r.name}</span>
+                        {r.id === recentlySavedRowId && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-600 text-white shadow-xs animate-bounce">
+                            ✓ Tersimpan
+                          </span>
+                        )}
+                      </div>
                       <div className="text-[10px] text-slate-400">{r.golongan || 'Gol. -'}</div>
                     </td>
                     <td className="py-2.5 px-3 font-mono text-[11px] text-slate-600 dark:text-slate-400">
@@ -1241,10 +1420,36 @@ const EditTransportUkkModal: React.FC<EditModalProps> = ({ record, onClose, onSa
   }, [formData]);
 
   const handleChange = (field: keyof TransportUkkRecord, value: any) => {
-    setFormData((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
+    setFormData((prev) => {
+      const updated = {
+        ...prev,
+        [field]: value,
+      };
+
+      // If attendance fields changed, automatically recalculate jumlahHadir so UKK Bruto, Transpor, and Uang Makan sync!
+      if (['sakit', 'izin', 'alpa', 'cuti', 'dinluar', 'hariKerja'].includes(field as string)) {
+        const hk = field === 'hariKerja' ? Number(value) : (Number(prev.hariKerja) || 0);
+        const s = field === 'sakit' ? Number(value) : (Number(prev.sakit) || 0);
+        const i = field === 'izin' ? Number(value) : (Number(prev.izin) || 0);
+        const a = field === 'alpa' ? Number(value) : (Number(prev.alpa) || 0);
+        const c = field === 'cuti' ? Number(value) : (Number(prev.cuti) || 0);
+        const d = field === 'dinluar' ? Number(value) : (Number(prev.dinluar) || 0);
+        const newTidakMasuk = s + i + a + c + d;
+        const newHadir = Math.max(0, hk - newTidakMasuk);
+        updated.jumlahTidakMasuk = newTidakMasuk;
+        updated.jumlahHadir = newHadir;
+      }
+
+      if (field === 'jumlahHadir') {
+        const newHadir = Number(value) || 0;
+        updated.jumlahHadir = newHadir;
+        if (prev.hariKerja && prev.hariKerja > 0) {
+          updated.jumlahTidakMasuk = Math.max(0, prev.hariKerja - newHadir);
+        }
+      }
+
+      return updated;
+    });
   };
 
   return (
@@ -1440,13 +1645,21 @@ const EditTransportUkkModal: React.FC<EditModalProps> = ({ record, onClose, onSa
             </h4>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">UKK Bruto (Rp)</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-medium text-slate-700 dark:text-slate-300">UKK Bruto (Rp)</label>
+                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">Tersinkron: {formatRupiah(preview.ukkBruto)}</span>
+                </div>
                 <input
                   type="number"
-                  value={formData.ukkBruto ?? 0}
-                  onChange={(e) => handleChange('ukkBruto', parseFloat(e.target.value) || 0)}
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm font-semibold"
+                  value={preview.ukkBruto}
+                  onChange={(e) => {
+                    const val = parseFloat(e.target.value) || 0;
+                    handleChange('ukkBruto', val);
+                    handleChange('baseUkkBruto', val);
+                  }}
+                  className="w-full px-3 py-2 rounded-lg border border-emerald-400/60 dark:border-emerald-700/60 bg-emerald-50/30 dark:bg-emerald-950/20 text-sm font-bold text-emerald-700 dark:text-emerald-300"
                 />
+                <span className="text-[10px] text-slate-500 mt-1 block">Tersinkronisasi {preview.jumlahHadir} hari hadir</span>
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Tarif Transpor / Hari (Rp)</label>
@@ -1456,6 +1669,7 @@ const EditTransportUkkModal: React.FC<EditModalProps> = ({ record, onClose, onSa
                   onChange={(e) => handleChange('tarifTransporHarian', parseFloat(e.target.value) || 0)}
                   className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm font-semibold"
                 />
+                <span className="text-[10px] text-slate-500 mt-1 block">Hasil: {formatRupiah(preview.transporDiterima)}</span>
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Tarif Uang Makan / Hari (Rp)</label>
@@ -1465,6 +1679,7 @@ const EditTransportUkkModal: React.FC<EditModalProps> = ({ record, onClose, onSa
                   onChange={(e) => handleChange('tarifUangMakanHarian', parseFloat(e.target.value) || 0)}
                   className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm font-semibold"
                 />
+                <span className="text-[10px] text-slate-500 mt-1 block">Hasil: {formatRupiah(preview.uangMakanDiterima)}</span>
               </div>
             </div>
           </div>
@@ -1474,12 +1689,20 @@ const EditTransportUkkModal: React.FC<EditModalProps> = ({ record, onClose, onSa
             <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300">
               <span className="flex items-center gap-1.5">
                 <Sparkles className="w-4 h-4 text-emerald-500" />
-                Hasil Perhitungan Rumus Otomatis (Live)
+                Hasil Perhitungan Rumus Otomatis (Live Preview)
               </span>
-              <span className="text-rose-600">Total Potongan: {preview.totalPotonganPersen}%</span>
+              <span className="text-rose-600 font-semibold">Total Potongan: {preview.totalPotonganPersen}%</span>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-xs">
+              <div className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                <div className="text-slate-400 text-[10px]">UKK Bruto</div>
+                <div className="text-sm font-bold text-slate-900 dark:text-slate-100 mt-0.5">
+                  {formatRupiah(preview.ukkBruto)}
+                </div>
+                <div className="text-[10px] text-emerald-600 mt-0.5">{preview.jumlahHadir} hari hadir</div>
+              </div>
+
               <div className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
                 <div className="text-slate-400 text-[10px]">UKK Diterima</div>
                 <div className="text-sm font-bold text-indigo-600 dark:text-indigo-400 mt-0.5">
@@ -1493,23 +1716,23 @@ const EditTransportUkkModal: React.FC<EditModalProps> = ({ record, onClose, onSa
                 <div className="text-sm font-bold text-amber-600 dark:text-amber-400 mt-0.5">
                   {formatRupiah(preview.transporDiterima)}
                 </div>
-                <div className="text-[10px] text-slate-400 mt-0.5">{preview.jumlahHadir} hari x {formatRupiah(preview.tarifTransporHarian)}</div>
+                <div className="text-[10px] text-slate-400 mt-0.5">{preview.jumlahHadir} x {formatRupiah(preview.tarifTransporHarian)}</div>
               </div>
 
               <div className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
-                <div className="text-slate-400 text-[10px]">Uang Makan Diterima</div>
+                <div className="text-slate-400 text-[10px]">Uang Makan</div>
                 <div className="text-sm font-bold text-purple-600 dark:text-purple-400 mt-0.5">
                   {formatRupiah(preview.uangMakanDiterima)}
                 </div>
-                <div className="text-[10px] text-slate-400 mt-0.5">{preview.jumlahHadir} hari x {formatRupiah(preview.tarifUangMakanHarian)}</div>
+                <div className="text-[10px] text-slate-400 mt-0.5">{preview.jumlahHadir} x {formatRupiah(preview.tarifUangMakanHarian)}</div>
               </div>
 
-              <div className="p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-700">
+              <div className="col-span-2 sm:col-span-1 p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-700">
                 <div className="text-emerald-700 dark:text-emerald-300 font-semibold text-[10px]">GRAND TOTAL</div>
                 <div className="text-base font-extrabold text-emerald-700 dark:text-emerald-300 mt-0.5">
                   {formatRupiah(preview.grandTotal)}
                 </div>
-                <div className="text-[10px] text-emerald-600 mt-0.5">Tersinkronisasi otomatis</div>
+                <div className="text-[10px] text-emerald-600 mt-0.5">Sinkron ke Slip Gaji</div>
               </div>
             </div>
           </div>

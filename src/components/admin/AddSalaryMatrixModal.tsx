@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { SalaryCalculationSource } from '../../types';
 import { calculateSalaryMatrixRow } from '../../data/salaryMatrixData';
 import { formatRupiah } from '../../utils/currencyFormatter';
-import { X, Plus, Calculator, CheckCircle2 } from 'lucide-react';
+import { useSalary } from '../../context/SalaryContext';
+import { X, Plus, Calculator, CheckCircle2, UserCheck } from 'lucide-react';
 
 interface AddSalaryMatrixModalProps {
   isOpen: boolean;
@@ -15,6 +16,9 @@ export const AddSalaryMatrixModal: React.FC<AddSalaryMatrixModalProps> = ({
   onClose,
   onAdd,
 }) => {
+  const { employees } = useSalary();
+  const [selectedEmpId, setSelectedEmpId] = useState<string>('');
+
   const [formData, setFormData] = useState<Partial<SalaryCalculationSource>>({
     name: '',
     nip: '',
@@ -49,6 +53,29 @@ export const AddSalaryMatrixModal: React.FC<AddSalaryMatrixModalProps> = ({
     regionalDeduction: 0,
     notes: '',
   });
+
+  const handleSelectEmployee = (empId: string) => {
+    setSelectedEmpId(empId);
+    const emp = employees.find((e) => e.id === empId);
+    if (!emp) return;
+
+    const isGuru = (emp.position || '').toLowerCase().includes('guru');
+    const isPimpinan = (emp.position || '').toLowerCase().includes('kepala') || (emp.position || '').toLowerCase().includes('wakil');
+
+    setFormData((prev) => {
+      const updated = {
+        ...prev,
+        name: emp.name,
+        nip: emp.nip || '',
+        category: isGuru ? 'GURU' : 'TATA USAHA',
+        employeeStatus: (emp.status === 'tetap' ? 'GTY' : 'GTT') as any,
+        level: emp.grade || 'V C',
+        positionAllowance: emp.positionAllowance || (isPimpinan ? 1200000 : 0),
+        notes: `Terhubung dengan database pegawai: ${emp.position} (${emp.department})`,
+      };
+      return updated;
+    });
+  };
 
   if (!isOpen) return null;
 
@@ -132,6 +159,29 @@ export const AddSalaryMatrixModal: React.FC<AddSalaryMatrixModalProps> = ({
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-4">
+          {/* Quick Select from Kelola Pegawai */}
+          <div className="bg-blue-50/70 dark:bg-blue-950/30 p-3.5 rounded-xl border border-blue-200 dark:border-blue-800">
+            <label className="block text-xs font-bold text-blue-900 dark:text-blue-200 mb-1.5 flex items-center gap-1.5">
+              <UserCheck className="w-4 h-4 text-blue-600" />
+              <span>Pilih Pegawai Terdaftar dari Kelola Pegawai</span>
+            </label>
+            <select
+              value={selectedEmpId}
+              onChange={(e) => handleSelectEmployee(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-blue-300 dark:border-blue-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-slate-100 shadow-xs focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">-- Pilih dari Daftar Kelola Pegawai (Otomatis Isi Identitas & Jabatan) --</option>
+              {employees.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.name} ({e.nip || 'Tanpa NIP'}) • {e.position} • {e.department}
+                </option>
+              ))}
+            </select>
+            <p className="text-[11px] text-blue-600/80 mt-1">
+              Memilih nama akan otomatis mengisi NIP, status kepegawaian, golongan, dan menghubungkannya dengan master slip gaji.
+            </p>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">

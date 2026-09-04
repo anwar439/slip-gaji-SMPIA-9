@@ -56,15 +56,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [activeAdminKey, setActiveAdminKey] = useState<string>('kepsek123');
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
     try {
-      const savedAuth = localStorage.getItem(AUTH_STORAGE_KEY);
+      const savedAuth = sessionStorage.getItem(AUTH_STORAGE_KEY) || localStorage.getItem(AUTH_STORAGE_KEY);
       if (savedAuth) {
         const parsed = JSON.parse(savedAuth);
-        return parsed.isLoggedIn ?? true;
+        return parsed.isLoggedIn === true;
       }
     } catch {
       // Ignore
     }
-    return true; // Keep logged in by default for preview, can logout to test login page
+    return false; // Default to login page as requested by user
   });
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('emp-guru-1'); // Amirudin, M.Pd.
   const [isSwitcherOpen, setIsSwitcherOpen] = useState<boolean>(false);

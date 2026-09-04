@@ -14,7 +14,9 @@ import {
   INITIAL_COMPANY_PROFILE,
   INITIAL_EMPLOYEES,
   generateInitialSalaryRecords,
+  generateSalaryRecord,
   AVAILABLE_PERIODS,
+  getIndonesianPeriodLabel,
 } from '../data/mockData';
 import { INITIAL_SALARY_MATRIX, calculateSalaryMatrixRow } from '../data/salaryMatrixData';
 import { generateInitialAttendanceRecords } from '../utils/attendanceGenerator';
@@ -130,6 +132,9 @@ interface SalaryContextType {
   importTransportUkkRecords: (records: TransportUkkRecord[], replaceAll?: boolean) => void;
   resetTransportUkkToDefault: () => void;
   syncTransportUkkToSlips: (period?: string) => { syncedCount: number };
+  saveTransportUkkChanges: (period?: string) => void;
+  initializePeriodTransportUkk: (period: string, copyFromPeriod?: string) => number;
+  initializePeriodSalarySlips: (period: string) => number;
 
   // UKK Adjustments (Tunjangan & Potongan UKK) Actions
   updateUkkAdjustmentRow: (id: string, updates: Partial<UkkAdjustmentRecord>) => void;
@@ -230,21 +235,31 @@ export const SalaryProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_ATTENDANCE);
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed.filter((r: AttendanceRecord) => !r.id.startsWith('att-2025-01-') && !r.id.startsWith('att-2024-12-'));
+        }
+      }
     } catch {
       // ignore
     }
-    return generateInitialAttendanceRecords(INITIAL_EMPLOYEES);
+    return [];
   });
 
   const [dutyLetters, setDutyLetters] = useState<DutyLetter[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_DUTY_LETTERS);
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed.filter((l: DutyLetter) => !l.id.startsWith('duty-letter-'));
+        }
+      }
     } catch {
       // ignore
     }
-    return generateInitialDutyLetters(INITIAL_EMPLOYEES);
+    return [];
   });
 
   const [transportUkkRecords, setTransportUkkRecords] = useState<TransportUkkRecord[]>(() => {
@@ -927,13 +942,33 @@ export const SalaryProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     updates: Partial<TransportUkkRecord>,
     recalculate: boolean = true
   ) => {
-    setTransportUkkRecords((prev) =>
-      prev.map((row) => {
+    setTransportUkkRecords((prev) => {
+      const updated = prev.map((row) => {
         if (row.id !== id) return row;
-        const merged = { ...row, ...updates, lastUpdated: new Date().toISOString() };
+        const normalizedUpdates = { ...updates };
+        if (normalizedUpdates.ukkBruto !== undefined && normalizedUpdates.baseUkkBruto === undefined) {
+          const newBruto = Number(normalizedUpdates.ukkBruto) || 0;
+          const currentHadir = normalizedUpdates.jumlahHadir ?? row.jumlahHadir ?? row.hariKerja ?? 22;
+          const currentHK = normalizedUpdates.hariKerja ?? row.hariKerja ?? 22;
+          if (currentHadir > 0 && currentHK > 0 && currentHadir < currentHK) {
+            normalizedUpdates.baseUkkBruto = Math.round((newBruto / currentHadir) * currentHK);
+          } else {
+            normalizedUpdates.baseUkkBruto = newBruto;
+          }
+          normalizedUpdates.ukkKotor = newBruto;
+        }
+        const merged = { ...row, ...normalizedUpdates, lastUpdated: new Date().toISOString() };
         return recalculate ? calculateTransportUkkRow(merged) : merged;
-      })
-    );
+      });
+
+      // Persist to local database (localStorage) immediately
+      try {
+        localStorage.setItem(STORAGE_KEY_TRANSPORT_UKK, JSON.stringify(updated));
+      } catch (err) {
+        console.error('Error auto-saving transport UKK records to database:', err);
+      }
+      return updated;
+    });
   };
 
   const addTransportUkkRow = (row: Partial<TransportUkkRecord>) => {
@@ -1003,6 +1038,169 @@ export const SalaryProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     showToast('Data Transport & UKK dikembalikan ke kondisi default resmi.', 'info');
   };
 
+  const saveTransportUkkChanges = (period?: string) => {
+    try {
+      localStorage.setItem(STORAGE_KEY_TRANSPORT_UKK, JSON.stringify(transportUkkRecords));
+      const targetLabel = period ? getIndonesianPeriodLabel(period) : getCurrentPeriodConfig().label;
+      addAuditLog(
+        'Simpan Data Transport & UKK',
+        `Menyimpan perubahan data Transport & UKK periode ${targetLabel} ke database lokal.`,
+        'edit'
+      );
+      showToast(`Data Transport & UKK periode ${targetLabel} berhasil disimpan ke database!`, 'success');
+    } catch {
+      showToast('Gagal menyimpan data Transport & UKK ke database.', 'error');
+    }
+  };
+
+  const initializePeriodTransportUkk = (period: string, copyFromPeriod?: string): number => {
+    const existingInPeriod = transportUkkRecords.filter((t) => t.period === period);
+    if (existingInPeriod.length > 0) {
+      showToast(`Periode ${getIndonesianPeriodLabel(period)} sudah memiliki ${existingInPeriod.length} data.`, 'info');
+      return existingInPeriod.length;
+    }
+
+    const periodLabel = getIndonesianPeriodLabel(period);
+    let newRows: TransportUkkRecord[] = [];
+
+    // Prioritize copying existing full list (e.g. from 2026-08 or copyFromPeriod)
+    const sourceRecords = copyFromPeriod
+      ? transportUkkRecords.filter((t) => t.period === copyFromPeriod)
+      : transportUkkRecords.filter((t) => t.period === '2026-08' || !t.period);
+
+    if (sourceRecords.length > 0) {
+      newRows = sourceRecords.map((r, idx) =>
+        calculateTransportUkkRow({
+          ...r,
+          id: `tu-${r.nip || idx}-${period}`,
+          no: idx + 1,
+          period,
+          periodLabel,
+          // Set full attendance default for new period
+          hariKerja: r.hariKerja || 22,
+          jumlahHadir: r.hariKerja || 22,
+          sakit: 0,
+          izin: 0,
+          alpa: 0,
+          cuti: 0,
+          dinluar: 0,
+          datangLambatMin5: 0,
+          datangLambatPlus5: 0,
+          pulangCepatMin5: 0,
+          pulangCepatPlus5: 0,
+          kondite: 0,
+          subuhOnline: 0,
+          lastUpdated: new Date().toISOString(),
+        })
+      );
+    } else {
+      // Generate from active employees list
+      newRows = employees.map((emp, idx) => {
+        const isPimpinan = (emp.position || '').toLowerCase().includes('kepala');
+        const isCPG = (emp.employeeStatus || '').toUpperCase() === 'CPG';
+        const ukkPerhari = isPimpinan ? 158250 : isCPG ? 66125 : 132250;
+        const transporPerhari = isPimpinan ? 84250 : 59750;
+        return calculateTransportUkkRow({
+          id: `tu-${emp.id}-${period}`,
+          no: idx + 1,
+          nip: emp.nip && emp.nip !== '-' ? emp.nip : `10204${1400 + idx}`,
+          name: emp.name,
+          jabatan: emp.position,
+          unitKerja: emp.unitKerja || emp.department || 'Unit Utama',
+          employeeStatus: emp.employeeStatus || 'GTY',
+          hariKerja: 22,
+          jumlahHadir: 22,
+          sakit: 0,
+          izin: 0,
+          alpa: 0,
+          cuti: 0,
+          dinluar: 0,
+          datangLambatMin5: 0,
+          datangLambatPlus5: 0,
+          pulangCepatMin5: 0,
+          pulangCepatPlus5: 0,
+          kondite: 0,
+          subuhOnline: 0,
+          ukkPerhari,
+          ukkKinerjaPersen: 97.0,
+          transporPerhari,
+          uangMakanPerhari: 30000,
+          period,
+          periodLabel,
+          lastUpdated: new Date().toISOString(),
+        });
+      });
+    }
+
+    setTransportUkkRecords((prev) => {
+      const updated = [...prev, ...newRows];
+      localStorage.setItem(STORAGE_KEY_TRANSPORT_UKK, JSON.stringify(updated));
+      return updated;
+    });
+
+    addAuditLog(
+      'Inisialisasi Data Transport & UKK Periode',
+      `Menginisialisasi ${newRows.length} data perhitungan Transport & UKK untuk periode ${periodLabel}.`,
+      'upload'
+    );
+    showToast(`Berhasil menginisialisasi ${newRows.length} data Transport & UKK periode ${periodLabel}.`, 'success');
+    return newRows.length;
+  };
+
+  const initializePeriodSalarySlips = (period: string): number => {
+    const periodLabel = getIndonesianPeriodLabel(period);
+    const existingSlips = records.filter((r) => r.period === period);
+    const existingEmpIds = new Set(existingSlips.map((r) => r.employeeId));
+
+    const newSlips: SalaryRecord[] = [];
+    const [yearStr, monthStr] = period.split('-');
+    const defaultPayDate = `${yearStr}-${monthStr}-25`;
+
+    for (const emp of employees) {
+      if (!existingEmpIds.has(emp.id)) {
+        const baseRec = generateSalaryRecord(
+          emp,
+          period,
+          periodLabel,
+          defaultPayDate,
+          0,
+          0,
+          0,
+          0,
+          0,
+          false
+        );
+        const synced = synchronizeSalaryRecordFromAllSources(
+          baseRec,
+          salaryMatrix,
+          transportUkkRecords,
+          ukkAdjustmentRecords,
+          employees
+        );
+        newSlips.push(synced);
+      }
+    }
+
+    if (newSlips.length === 0) {
+      showToast(`Seluruh pegawai aktif sudah memiliki slip gaji pada periode ${periodLabel}.`, 'info');
+      return 0;
+    }
+
+    setRecords((prev) => {
+      const updated = [...prev, ...newSlips];
+      localStorage.setItem(STORAGE_KEY_RECORDS, JSON.stringify(updated));
+      return updated;
+    });
+
+    addAuditLog(
+      'Inisialisasi Slip Gaji Periode Baru',
+      `Menerbitkan ${newSlips.length} draft slip gaji untuk periode ${periodLabel}.`,
+      'upload'
+    );
+    showToast(`Berhasil menginisialisasi ${newSlips.length} slip gaji untuk periode ${periodLabel}!`, 'success');
+    return newSlips.length;
+  };
+
   // Sync calculated Transport, UKK & Uang Makan into Salary Records
   const syncTransportUkkToSlips = (period?: string): { syncedCount: number } => {
     const targetPeriod = period || selectedPeriod;
@@ -1012,12 +1210,25 @@ export const SalaryProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       return prevRecords.map((slip) => {
         if (slip.period !== targetPeriod) return slip;
 
-        // Find matching transport/UKK record by NIP or Name
-        const match = transportUkkRecords.find(
-          (tu) =>
-            (tu.nip && tu.nip === slip.employeeNip) ||
-            (tu.name && tu.name.toLowerCase().trim() === slip.employeeName.toLowerCase().trim())
-        );
+        // Find matching transport/UKK record by NIP or Name, prioritizing targetPeriod
+        const match =
+          transportUkkRecords.find(
+            (tu) =>
+              tu.period === targetPeriod &&
+              ((tu.nip && tu.nip === slip.employeeNip) ||
+                (tu.name && tu.name.toLowerCase().trim() === slip.employeeName.toLowerCase().trim()))
+          ) ||
+          transportUkkRecords.find(
+            (tu) =>
+              (!tu.period || tu.period === targetPeriod) &&
+              ((tu.nip && tu.nip === slip.employeeNip) ||
+                (tu.name && tu.name.toLowerCase().trim() === slip.employeeName.toLowerCase().trim()))
+          ) ||
+          transportUkkRecords.find(
+            (tu) =>
+              (tu.nip && tu.nip === slip.employeeNip) ||
+              (tu.name && tu.name.toLowerCase().trim() === slip.employeeName.toLowerCase().trim())
+          );
 
         if (!match) return slip;
         count++;
@@ -1398,7 +1609,9 @@ export const SalaryProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Get distinct list of periods with proper start/end date metadata
   const availablePeriods: PeriodConfig[] = useMemo(() => {
     const periodSet = new Set<string>();
+    if (selectedPeriod) periodSet.add(selectedPeriod);
     records.forEach((r) => periodSet.add(r.period));
+    transportUkkRecords.forEach((t) => t.period && periodSet.add(t.period));
     AVAILABLE_PERIODS.forEach((p) => periodSet.add(p.value));
 
     const sortedPeriods = Array.from(periodSet).sort((a, b) => b.localeCompare(a));
@@ -1418,7 +1631,7 @@ export const SalaryProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (sampleRec?.periodStartDate && sampleRec?.periodEndDate) {
         return {
           value: p,
-          label: sampleRec.periodLabel || p,
+          label: sampleRec.periodLabel || getIndonesianPeriodLabel(p),
           startDate: sampleRec.periodStartDate,
           endDate: sampleRec.periodEndDate,
         };
@@ -1426,7 +1639,7 @@ export const SalaryProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       const match = AVAILABLE_PERIODS.find((ap) => ap.value === p);
       const [yearStr, monthStr] = p.split('-');
-      const year = parseInt(yearStr, 10) || 2025;
+      const year = parseInt(yearStr, 10) || 2026;
       const month = parseInt(monthStr, 10) || 1;
       const lastDay = new Date(year, month, 0).getDate();
       const defaultStart = `${p}-01`;
@@ -1434,13 +1647,13 @@ export const SalaryProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       return {
         value: p,
-        label: match ? match.label : p,
+        label: match ? match.label : getIndonesianPeriodLabel(p),
         startDate: defaultStart,
         endDate: defaultEnd,
         isNew: match?.isNew,
       };
     });
-  }, [records, customPeriodConfigs]);
+  }, [records, transportUkkRecords, selectedPeriod, customPeriodConfigs]);
 
   const getCurrentPeriodConfig = (): PeriodConfig => {
     const found = availablePeriods.find((p) => p.value === selectedPeriod);
@@ -1524,6 +1737,9 @@ export const SalaryProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         importTransportUkkRecords,
         resetTransportUkkToDefault,
         syncTransportUkkToSlips,
+        saveTransportUkkChanges,
+        initializePeriodTransportUkk,
+        initializePeriodSalarySlips,
 
         // UKK Adjustment Actions (Tunjangan & Potongan UKK)
         ukkAdjustmentRecords,

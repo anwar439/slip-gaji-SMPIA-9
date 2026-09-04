@@ -37,6 +37,8 @@ export const UkkAdjustmentManagement: React.FC = () => {
     selectedPeriod,
     availablePeriods,
     setSelectedPeriod,
+    employees,
+    transportUkkRecords,
     showToast,
   } = useSalary();
 
@@ -46,6 +48,37 @@ export const UkkAdjustmentManagement: React.FC = () => {
   const [selectedRecordForModal, setSelectedRecordForModal] = useState<UkkAdjustmentRecord | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [selectedEmpIdForAdd, setSelectedEmpIdForAdd] = useState<string>('');
+
+  const handleSelectEmployeeForAdd = (empId: string) => {
+    setSelectedEmpIdForAdd(empId);
+    const emp = employees.find((e) => e.id === empId);
+    if (!emp) return;
+
+    // Check if employee has existing transport UKK record
+    const cleanEmpName = emp.name.toLowerCase().trim();
+    const cleanEmpNip = (emp.nip || '').trim();
+    const foundUkk = transportUkkRecords.find((u) => {
+      if (cleanEmpNip && u.nip && u.nip.trim() === cleanEmpNip) return true;
+      if (u.name && u.name.toLowerCase().trim() === cleanEmpName) return true;
+      return false;
+    });
+
+    const isWaliKelas = (emp.position || '').toLowerCase().includes('wali kelas');
+    const isPimpinan = (emp.position || '').toLowerCase().includes('kepala') || (emp.position || '').toLowerCase().includes('wakil');
+
+    setNewFormData((prev) => ({
+      ...prev,
+      name: emp.name,
+      nip: emp.nip || '',
+      bankAccountNumber: emp.accountNumber || '',
+      bankName: emp.bankName || 'BSI',
+      ukkTransportMakan: foundUkk ? (foundUkk.totalDiterimaUkk || foundUkk.transportUkkDiterima || 0) : prev.ukkTransportMakan || 0,
+      tunjanganWaliKelas: isWaliKelas ? 350000 : 0,
+      tunjanganStaffPimpinan: isPimpinan ? 1000000 : 0,
+      notes: `Pegawai: ${emp.position} (${emp.department})`,
+    }));
+  };
 
   // Form state for Add Modal
   const [newFormData, setNewFormData] = useState<Partial<UkkAdjustmentRecord>>({
@@ -993,6 +1026,29 @@ export const UkkAdjustmentManagement: React.FC = () => {
             </div>
 
             <form onSubmit={handleSaveAddModal} className="p-6 space-y-4">
+              {/* Quick select employee from Kelola Pegawai */}
+              <div className="bg-emerald-50/70 p-3.5 rounded-xl border border-emerald-200">
+                <label className="block text-xs font-bold text-emerald-900 mb-1 flex items-center gap-1.5">
+                  <UserCheck className="w-4 h-4 text-emerald-600" />
+                  <span>Pilih Pegawai Terdaftar dari Kelola Pegawai</span>
+                </label>
+                <select
+                  value={selectedEmpIdForAdd}
+                  onChange={(e) => handleSelectEmployeeForAdd(e.target.value)}
+                  className="w-full px-3 py-2 text-xs font-semibold rounded-xl border border-emerald-300 bg-white text-slate-800 shadow-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                >
+                  <option value="">-- Pilih Pegawai (Otomatis Tarik Nama, NIP, Rekening & UKK) --</option>
+                  {employees.map((e) => (
+                    <option key={e.id} value={e.id}>
+                      {e.name} ({e.nip || 'Tanpa NIP'}) • {e.position} • {e.department}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-emerald-700/80 mt-1">
+                  Memilih pegawai otomatis mengisi NIP, No. Rekening Bank, serta menarik estimasi UKK & tunjangan terkait.
+                </p>
+              </div>
+
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   Nama Lengkap Pegawai *

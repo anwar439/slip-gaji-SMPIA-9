@@ -1,12 +1,10 @@
 {
-  "name": "slipgaji-smpia9",
+  "name": "smpia9-slipgaji",
   "version": "1.0.0",
-  "description": "slip gaji id SMPI Al Azhar 9",
+  "private": true,
+  "description": "Slip Gaji Digital SMP Islam Al Azhar 9",
   "main": "app.js",
   "scripts": {
     "start": "node app.js"
-  },
-  "dependencies": {
-    "express": "^4.19.2"
   }
 }

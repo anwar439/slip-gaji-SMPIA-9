@@ -33,19 +33,27 @@ export function calculateTransportUkkRow(
   let ukkPerhari = Number(row.ukkPerhari) || 0;
   const ukkKinerjaPersen = Number(row.ukkKinerjaPersen) || 0;
 
-  // 1. UKK Kotor / Bruto
-  let ukkKotor = Number(row.ukkKotor ?? row.ukkBruto);
-  if (options?.recalculateKotor || isNaN(ukkKotor) || ukkKotor === 0) {
-    if (ukkPerhari > 0) {
+  // Base UKK Bruto (Nilai acuan untuk kehadiran penuh pada hari kerja)
+  let baseUkkBruto = Number(row.baseUkkBruto);
+  if (!baseUkkBruto || isNaN(baseUkkBruto) || baseUkkBruto <= 0) {
+    const existingKotor = Number(row.ukkKotor ?? row.ukkBruto);
+    if (!isNaN(existingKotor) && existingKotor > 0) {
+      // Jika existing data hadir kurang dari hari kerja, prorata ke full hari kerja untuk mendapatkan base
+      if (hariKerja > 0 && jumlahHadir > 0 && jumlahHadir < hariKerja) {
+        baseUkkBruto = Math.round((existingKotor / jumlahHadir) * hariKerja);
+      } else {
+        baseUkkBruto = existingKotor;
+      }
+    } else if (ukkPerhari > 0) {
       const baseDays = hariKerja > 0 ? hariKerja * 1.15 : 26;
-      ukkKotor = Math.round(ukkPerhari * baseDays * ((ukkKinerjaPersen || 100) / 100));
+      baseUkkBruto = Math.round(ukkPerhari * baseDays * ((ukkKinerjaPersen || 100) / 100));
     } else {
-      ukkKotor = 3484270;
+      baseUkkBruto = 3484270;
     }
   }
 
   // Jika ukkPerhari belum terdefinisi namun UKK kotor ada, turunkan tarif per harinya secara presisi
-  if (ukkPerhari === 0 && ukkKotor > 0) {
+  if (ukkPerhari === 0 && baseUkkBruto > 0) {
     const isPimpinan = (row.jabatan || '').toLowerCase().includes('kepala') || (row.jabatan || '').toLowerCase().includes('wakil');
     const isCPG = (row.employeeStatus || '').toUpperCase() === 'CPG';
     if (isPimpinan) {
@@ -57,22 +65,45 @@ export function calculateTransportUkkRow(
     }
   }
 
+  // 1. UKK Kotor / Bruto (Tersinkronisasi otomatis dengan Jumlah Hadir)
+  // Tarif UKK harian efektif untuk kehadiran
+  const effectiveDailyUkk = hariKerja > 0
+    ? (baseUkkBruto / hariKerja)
+    : (ukkPerhari > 0 ? (ukkPerhari * ((ukkKinerjaPersen || 100) / 100)) : 132250);
+
+  let ukkKotor: number;
+  if (options?.recalculateKotor && ukkPerhari > 0) {
+    const baseDays = hariKerja > 0 ? hariKerja * 1.15 : 26;
+    baseUkkBruto = Math.round(ukkPerhari * baseDays * ((ukkKinerjaPersen || 100) / 100));
+    ukkKotor = hariKerja > 0 ? Math.round((baseUkkBruto / hariKerja) * jumlahHadir) : Math.round(effectiveDailyUkk * jumlahHadir);
+  } else if (hariKerja > 0) {
+    // Sinkronkan selalu proporsional dengan jumlah hadir terhadap hari kerja
+    ukkKotor = Math.max(0, Math.round((baseUkkBruto / hariKerja) * jumlahHadir));
+  } else {
+    // Sinkronkan proporsional dengan jumlah hadir berdasarkan effective daily rate
+    ukkKotor = Math.max(0, Math.round(effectiveDailyUkk * jumlahHadir));
+  }
+
+  const ukkBruto = ukkKotor;
+
   // 2. Perhitungan Akumulasi Poin / Hari Penalti Pemotongan UKK
   // - Terlambat < 5m = 0.5 hari UKK (50% UKK hari itu)
   // - Terlambat > 5m = 1.0 hari UKK (100% UKK hari itu hilang)
   // - Pulang cepat < 5m = 0.5 hari UKK (50% UKK hari itu)
   // - Pulang cepat > 5m = 1.0 hari UKK (100% UKK hari itu hilang)
-  // - Ketidakhadiran (Sakit / Izin / Alpa / Dinluar) = 1.0 hari UKK
   // - Kondite = 1.0 hari UKK
   const lateEarlyPoints = (datangLambatMin5 * 0.5) + (datangLambatPlus5 * 1.0) + (pulangCepatMin5 * 0.5) + (pulangCepatPlus5 * 1.0);
   const absencePoints = (sakit + izin + alpa + dinluar) * 1.0 + kondite;
   const totalPenaltyPoints = lateEarlyPoints + absencePoints;
 
   const potonganKeterlambatanRp = Math.round(lateEarlyPoints * ukkPerhari);
-  const potonganAbsenRp = Math.round(absencePoints * ukkPerhari);
+  // Jika ukkKotor sudah dipotong secara proporsional dari jumlahHadir,
+  // jangan potong ganda absennya; hanya potong jika ukkKotor masih dihitung full
+  const isBrutoAlreadyProrated = hariKerja > 0 && jumlahHadir < hariKerja;
+  const potonganAbsenRp = isBrutoAlreadyProrated ? 0 : Math.round(absencePoints * ukkPerhari);
 
   let ukkPotongan = Number(row.ukkPotongan);
-  if (options?.recalculatePotongan || isNaN(ukkPotongan) || row.ukkPotongan === undefined || options === undefined) {
+  if (options?.recalculatePotongan || isNaN(ukkPotongan) || row.ukkPotongan === undefined || options === undefined || isBrutoAlreadyProrated) {
     ukkPotongan = Math.min(ukkKotor, potonganKeterlambatanRp + potonganAbsenRp);
   }
 
@@ -135,6 +166,7 @@ export function calculateTransportUkkRow(
     jumlahHadir,
     ukkPerhari,
     ukkKinerjaPersen,
+    baseUkkBruto,
     ukkKotor,
     ukkBruto: ukkKotor,
     ukkPotongan,

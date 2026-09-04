@@ -9,14 +9,96 @@ import {
 /**
  * Normalizes string for reliable matching
  */
-function cleanStr(str?: string): string {
+export function cleanStr(str?: string): string {
   if (!str) return '';
   return str.toLowerCase().replace(/[^a-z0-9]/g, '').trim();
 }
 
 /**
+ * Strips academic, religious, and formal titles for fuzzy name matching
+ * (e.g. "Amirudin, M.Pd." -> "amirudin", "Dra. Hj. Sri Wahyuni" -> "sriwahyuni")
+ */
+export function stripTitles(name?: string): string {
+  if (!name) return '';
+  return name
+    .replace(/\b(drs|dra|dr|prof|hj|h|ir|m\.?pd|s\.?pd|s\.?pd\.?i|s\.?ag|s\.?si|s\.?kom|s\.?e|se|m\.?si|m\.?m|m\.?kom|s\.?sos|s\.?t|s\.?psi|lc|s\.?hum|m\.?hum|s\.?s|ss|s\.?p|sp|s\.?pt|s\.?ip|s\.?sn|b\.?a|ba|apt|gr|mpd|spd|sag|ssi|skom|ssos|sh|mkn|mh|haji|hajjah|ustadz|ustadzah)\b\.?/gi, '')
+    .replace(/[^a-z0-9]/gi, '')
+    .toLowerCase()
+    .trim();
+}
+
+/**
+ * Checks if two records belong to the same employee via NIP or Name
+ */
+export function isEmployeeMatch(
+  targetNip: string | undefined,
+  targetName: string | undefined,
+  candidateNip: string | undefined,
+  candidateName: string | undefined
+): boolean {
+  const cTargetNip = cleanStr(targetNip);
+  const cCandidateNip = cleanStr(candidateNip);
+
+  // 1. Strict NIP match (ignore dummy dashes and leading zeroes)
+  if (
+    cTargetNip &&
+    cCandidateNip &&
+    cTargetNip !== '-' &&
+    cCandidateNip !== '-' &&
+    cTargetNip.length >= 4
+  ) {
+    if (cTargetNip === cCandidateNip) return true;
+    if (cTargetNip.replace(/^0+/, '') === cCandidateNip.replace(/^0+/, '')) return true;
+  }
+
+  // 2. Exact cleaned name match
+  const cTargetName = cleanStr(targetName);
+  const cCandidateName = cleanStr(candidateName);
+  if (cTargetName && cCandidateName && cTargetName === cCandidateName) {
+    return true;
+  }
+
+  // 3. Title-stripped fuzzy match
+  const sTarget = stripTitles(targetName);
+  const sCandidate = stripTitles(candidateName);
+  if (sTarget && sCandidate) {
+    if (sTarget === sCandidate) return true;
+    if (
+      sTarget.length >= 4 &&
+      sCandidate.length >= 4 &&
+      (sTarget.includes(sCandidate) || sCandidate.includes(sTarget))
+    ) {
+      return true;
+    }
+  }
+
+  // 4. Token-based word matching (e.g., "Amirudin" in "Dr. Amirudin M.Pd")
+  if (targetName && candidateName) {
+    const tokenize = (str: string) =>
+      str
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .filter((w) => w.length >= 4 && !/^(drs|dra|prof|haji|hajjah|ustadz|ustadzah|guru|staff|smpia|alazhar)$/.test(w));
+    
+    const targetWords = tokenize(targetName);
+    const candidateWords = tokenize(candidateName);
+    const common = targetWords.filter((w) => candidateWords.includes(w));
+    if (common.length >= 2 || (common.length >= 1 && common.some((w) => w.length >= 6))) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
  * Synchronizes and calculates all standard sections (A. Gaji Bulanan, B. Rekap Harian, and Attendance Header)
- * from Master Gaji Pokok (Salary Matrix), Transport & UKK, and UKK Adjustments.
+ * directly from Master Gaji Pokok (Salary Matrix), Transport & UKK, and UKK Adjustments.
+ * 
+ * Rules:
+ * - Data MUST come from Master Gaji Pokok & UKK sources dynamically.
+ * - Manual editing in slip table is locked/read-only; edits must be performed in Master Gaji & UKK.
  */
 export function synchronizeSalaryRecordFromAllSources(
   slip: SalaryRecord,
@@ -25,205 +107,185 @@ export function synchronizeSalaryRecordFromAllSources(
   ukkAdjList: UkkAdjustmentRecord[],
   employeeList: Employee[]
 ): SalaryRecord {
-  const cleanNip = cleanStr(slip.employeeNip);
-  const cleanName = cleanStr(slip.employeeName);
-
-  // 1. Find matching employee
-  const empMatch = employeeList.find(
-    (e) => (e.nip && cleanStr(e.nip) === cleanNip) || (e.name && cleanStr(e.name) === cleanName)
+  // 1. Find matching employee from Kelola Pegawai
+  const empMatch = employeeList.find((e) =>
+    isEmployeeMatch(slip.employeeNip, slip.employeeName, e.nip, e.name)
   );
 
   // 2. Find matching Salary Matrix (Master Gaji Pokok)
-  const matrixMatch = matrixList.find(
-    (m) => (m.nip && cleanStr(m.nip) === cleanNip) || (m.name && cleanStr(m.name) === cleanName)
+  const matrixMatch = matrixList.find((m) =>
+    isEmployeeMatch(slip.employeeNip, slip.employeeName, m.nip, m.name)
   );
 
-  // 3. Find matching Transport & UKK
-  const transportMatch = transportList.find(
-    (t) => (t.nip && cleanStr(t.nip) === cleanNip) || (t.name && cleanStr(t.name) === cleanName)
-  );
+  // 3. Find matching Transport & UKK (prioritizing matching period)
+  const transportMatch =
+    transportList.find(
+      (t) =>
+        t.period === slip.period &&
+        isEmployeeMatch(slip.employeeNip, slip.employeeName, t.nip, t.name)
+    ) ||
+    transportList.find((t) =>
+      isEmployeeMatch(slip.employeeNip, slip.employeeName, t.nip, t.name)
+    );
 
-  // 4. Find matching UKK Adjustment (Penyesuaian UKK)
-  const adjMatch = ukkAdjList.find(
-    (a) => (a.nip && cleanStr(a.nip) === cleanNip) || (a.name && cleanStr(a.name) === cleanName)
-  );
+  // 4. Find matching UKK Adjustment (Penyesuaian UKK / UKK Akhir, prioritizing matching period)
+  const adjMatch =
+    ukkAdjList.find(
+      (a) =>
+        a.period === slip.period &&
+        isEmployeeMatch(slip.employeeNip, slip.employeeName, a.nip, a.name)
+    ) ||
+    ukkAdjList.find((a) =>
+      isEmployeeMatch(slip.employeeNip, slip.employeeName, a.nip, a.name)
+    );
 
-  const isFachrul = cleanName.includes('fachrul') || cleanNip.includes('108182798');
-
-  // Header Attendance & Profile Tags
+  // Tags & Profile
   const employeeStatusTag =
-    slip.employeeStatusTag ||
     matrixMatch?.employeeStatus ||
     empMatch?.employeeStatus ||
-    (isFachrul ? 'GTY' : 'GTY');
+    slip.employeeStatusTag ||
+    'GTY';
 
   const levelTag =
-    slip.levelTag ||
     matrixMatch?.level ||
     empMatch?.level ||
-    (isFachrul ? 'V B' : 'V D');
+    slip.levelTag ||
+    'V B';
 
   const hariKerja =
-    slip.hariKerja ||
     transportMatch?.hariKerja ||
     slip.attendance?.workDays ||
-    (isFachrul ? 25 : 22);
+    slip.hariKerja ||
+    22;
 
-  const datangLambatMin5 =
-    slip.datangLambatMin5 !== undefined
-      ? slip.datangLambatMin5
-      : (transportMatch?.datangLambatMin5 || 0);
-
-  const datangLambatPlus5 =
-    slip.datangLambatPlus5 !== undefined
-      ? slip.datangLambatPlus5
-      : (transportMatch?.datangLambatPlus5 !== undefined ? transportMatch.datangLambatPlus5 : (isFachrul ? 1 : 0));
-
-  const pulangCepatMin5 =
-    slip.pulangCepatMin5 !== undefined
-      ? slip.pulangCepatMin5
-      : (transportMatch?.pulangCepatMin5 || 0);
-
-  const pulangCepatPlus5 =
-    slip.pulangCepatPlus5 !== undefined
-      ? slip.pulangCepatPlus5
-      : (transportMatch?.pulangCepatPlus5 || 0);
+  const datangLambatMin5 = transportMatch?.datangLambatMin5 ?? slip.datangLambatMin5 ?? 0;
+  const datangLambatPlus5 = transportMatch?.datangLambatPlus5 ?? slip.datangLambatPlus5 ?? 0;
+  const pulangCepatMin5 = transportMatch?.pulangCepatMin5 ?? slip.pulangCepatMin5 ?? 0;
+  const pulangCepatPlus5 = transportMatch?.pulangCepatPlus5 ?? slip.pulangCepatPlus5 ?? 0;
 
   const bankAccountNumber =
     adjMatch?.bankAccountNumber ||
-    slip.bankAccountNumber ||
     empMatch?.accountNumber ||
-    (isFachrul ? '7120632951' : '7000742125');
+    slip.bankAccountNumber ||
+    '7000742125';
 
   const bankName =
     adjMatch?.bankName ||
-    slip.bankName ||
     empMatch?.bankName ||
+    slip.bankName ||
     'BSI';
 
-  // --- A. GAJI BULANAN (SUMBER MASTER GAJI POKOK) ---
-  const gajiPokokBulanan =
-    slip.gajiPokokBulanan !== undefined
-      ? slip.gajiPokokBulanan
-      : (isFachrul ? 2470000 : (matrixMatch?.baseSalaryComponent || empMatch?.baseSalary || slip.basicSalary));
+  // --- A. GAJI BULANAN (DARI MASTER GAJI POKOK) ---
+  let gajiPokokBulanan = 0;
+  let tunjanganPengabdian = 0;
+  let tunjanganKeluarga = 0;
+  let tunjanganYayasan = 0;
+  let tunjanganJabatanBulanan = 0;
+  let bantuanPajak = 0;
+  let subtotalPendapatanBulanan = 0;
 
-  const tunjanganPengabdian =
-    slip.tunjanganPengabdian !== undefined
-      ? slip.tunjanganPengabdian
-      : (isFachrul ? 247000 : (matrixMatch?.dedicationAllowanceAmount ?? Math.round(gajiPokokBulanan * 0.1)));
+  let potonganJht = 0;
+  const potonganDanaPesangon = 0;
+  const potonganYayasan = 0;
+  let potonganBpjsKesehatan = 0;
+  let potonganBpjsKetenagakerjaan = 0;
+  let potonganZis = 0;
+  let potonganKoperasiAlAzhar = 0;
+  const potonganForsipa = 0;
+  const potonganIpSppYwamjp = 0;
+  let potonganPajak = 0;
+  let subtotalPotonganBulanan = 0;
+  let totalGajiBulananBersih = 0;
 
-  const tunjanganKeluarga =
-    slip.tunjanganKeluarga !== undefined
-      ? slip.tunjanganKeluarga
-      : (isFachrul ? 494000 : (matrixMatch?.familyAllowanceAmount ?? Math.round(gajiPokokBulanan * 0.2)));
+  if (matrixMatch) {
+    // Prioritize calculated values from Master Gaji Pokok (Salary Matrix)
+    gajiPokokBulanan = matrixMatch.performanceBasicSalary || matrixMatch.baseSalaryComponent || 0;
+    tunjanganPengabdian = matrixMatch.dedicationAllowanceAmount || 0;
+    tunjanganKeluarga = matrixMatch.familyAllowanceAmount || 0;
+    tunjanganYayasan = matrixMatch.foundationAllowanceAmount || 0;
+    tunjanganJabatanBulanan = matrixMatch.positionAllowance || 0;
+    bantuanPajak = matrixMatch.regionalAllowanceAmount || 0;
+    subtotalPendapatanBulanan =
+      matrixMatch.grossSalary ||
+      gajiPokokBulanan +
+        tunjanganPengabdian +
+        tunjanganKeluarga +
+        tunjanganYayasan +
+        tunjanganJabatanBulanan +
+        bantuanPajak;
 
-  const tunjanganYayasan =
-    slip.tunjanganYayasan !== undefined
-      ? slip.tunjanganYayasan
-      : (matrixMatch?.foundationAllowanceAmount || 0);
+    potonganJht = matrixMatch.jhtDeduction || 0;
+    potonganBpjsKesehatan = matrixMatch.bpjsKesDeduction || 0;
+    potonganBpjsKetenagakerjaan = matrixMatch.bpjsKtDeduction || 0;
+    potonganZis = matrixMatch.infaqMasjid || 0;
+    potonganKoperasiAlAzhar = matrixMatch.coopLoanDeduction || 0;
+    potonganPajak = matrixMatch.regionalDeduction || bantuanPajak || 0;
 
-  const tunjanganJabatanBulanan =
-    slip.tunjanganJabatanBulanan !== undefined
-      ? slip.tunjanganJabatanBulanan
-      : (matrixMatch?.positionAllowance || (isFachrul ? 0 : slip.positionAllowance || 0));
+    subtotalPotonganBulanan =
+      matrixMatch.totalDeduction ||
+      potonganJht +
+        potonganBpjsKesehatan +
+        potonganBpjsKetenagakerjaan +
+        potonganZis +
+        potonganKoperasiAlAzhar +
+        potonganPajak;
 
-  const bantuanPajak =
-    slip.bantuanPajak !== undefined
-      ? slip.bantuanPajak
-      : (isFachrul ? 321100 : (matrixMatch?.regionalAllowanceAmount || 0));
+    totalGajiBulananBersih =
+      matrixMatch.netSalaryPaid ||
+      Math.max(0, subtotalPendapatanBulanan - subtotalPotonganBulanan);
+  } else {
+    // Fallback if not yet in matrix
+    gajiPokokBulanan = empMatch?.baseSalary || slip.basicSalary || 2750000;
+    tunjanganPengabdian = Math.round(gajiPokokBulanan * 0.1);
+    tunjanganKeluarga = Math.round(gajiPokokBulanan * 0.15);
+    tunjanganYayasan = 0;
+    tunjanganJabatanBulanan = slip.positionAllowance || 0;
+    bantuanPajak = Math.round(gajiPokokBulanan * 0.05);
+    subtotalPendapatanBulanan =
+      gajiPokokBulanan +
+      tunjanganPengabdian +
+      tunjanganKeluarga +
+      tunjanganYayasan +
+      tunjanganJabatanBulanan +
+      bantuanPajak;
 
-  const subtotalPendapatanBulanan =
-    gajiPokokBulanan +
-    tunjanganPengabdian +
-    tunjanganKeluarga +
-    tunjanganYayasan +
-    tunjanganJabatanBulanan +
-    bantuanPajak;
+    potonganBpjsKesehatan = Math.round(gajiPokokBulanan * 0.01);
+    potonganBpjsKetenagakerjaan = Math.round(gajiPokokBulanan * 0.03);
+    potonganZis = Math.round((gajiPokokBulanan + tunjanganPengabdian + tunjanganKeluarga) * 0.025);
+    potonganKoperasiAlAzhar = 0;
+    potonganPajak = bantuanPajak;
+    subtotalPotonganBulanan =
+      potonganBpjsKesehatan +
+      potonganBpjsKetenagakerjaan +
+      potonganZis +
+      potonganKoperasiAlAzhar +
+      potonganPajak;
+    totalGajiBulananBersih = Math.max(0, subtotalPendapatanBulanan - subtotalPotonganBulanan);
+  }
 
-  // Potongan A
-  const potonganJht =
-    slip.potonganJht !== undefined
-      ? slip.potonganJht
-      : (matrixMatch?.jhtDeduction ? 0 : 0);
+  // --- B. REKAP HARIAN (DARI TRANSPORT & UKK + PENYESUAIAN UKK AKHIR) ---
+  let ukkKotorHarian = 0;
+  let transportHarian = 0;
+  let uangMakanHarian = 0;
+  let potonganUkkHarian = 0;
 
-  const potonganDanaPesangon = slip.potonganDanaPesangon || 0;
-  const potonganYayasan = slip.potonganYayasan || 0;
+  if (transportMatch) {
+    ukkKotorHarian = transportMatch.ukkBruto || transportMatch.ukkKotor || transportMatch.ukkDiterima || 0;
+    transportHarian = transportMatch.transporDiterima || transportMatch.transporBruto || 0;
+    uangMakanHarian = transportMatch.uangMakanDiterima || 0;
+    potonganUkkHarian = transportMatch.ukkPotongan || 0;
+  } else {
+    // Default estimate if not in transport list
+    const isGuru = (empMatch?.category || slip.employeeDepartment || '').toUpperCase().includes('GURU');
+    ukkKotorHarian = isGuru ? 3484270 : 2500000;
+    transportHarian = 1250000;
+    uangMakanHarian = 600000;
+    potonganUkkHarian = 0;
+  }
 
-  const potonganBpjsKesehatan =
-    slip.potonganBpjsKesehatan !== undefined
-      ? slip.potonganBpjsKesehatan
-      : (isFachrul ? 24700 : (matrixMatch?.bpjsKesDeduction || Math.round(gajiPokokBulanan * 0.01)));
-
-  const potonganBpjsKetenagakerjaan =
-    slip.potonganBpjsKetenagakerjaan !== undefined
-      ? slip.potonganBpjsKetenagakerjaan
-      : (isFachrul ? 74100 : (matrixMatch?.bpjsKtDeduction || Math.round(gajiPokokBulanan * 0.03)));
-
-  const potonganZis =
-    slip.potonganZis !== undefined
-      ? slip.potonganZis
-      : (isFachrul ? 80275 : (matrixMatch?.infaqMasjid || Math.round((gajiPokokBulanan + tunjanganPengabdian + tunjanganKeluarga) * 0.025)));
-
-  const potonganKoperasiAlAzhar =
-    slip.potonganKoperasiAlAzhar !== undefined
-      ? slip.potonganKoperasiAlAzhar
-      : (matrixMatch?.coopLoanDeduction || 0);
-
-  const potonganForsipa = slip.potonganForsipa || 0;
-  const potonganIpSppYwamjp = slip.potonganIpSppYwamjp || 0;
-
-  const potonganPajak =
-    slip.potonganPajak !== undefined
-      ? slip.potonganPajak
-      : (isFachrul ? 321100 : (bantuanPajak || 0));
-
-  const subtotalPotonganBulanan =
-    potonganJht +
-    potonganDanaPesangon +
-    potonganYayasan +
-    potonganBpjsKesehatan +
-    potonganBpjsKetenagakerjaan +
-    potonganZis +
-    potonganKoperasiAlAzhar +
-    potonganForsipa +
-    potonganIpSppYwamjp +
-    potonganPajak;
-
-  const totalGajiBulananBersih = Math.max(0, subtotalPendapatanBulanan - subtotalPotonganBulanan);
-
-  // --- B. REKAP HARIAN (SUMBER UKK AKHIR YANG DIBAYARKAN) ---
-  const ukkKotorHarian =
-    slip.ukkKotorHarian !== undefined
-      ? slip.ukkKotorHarian
-      : (isFachrul
-          ? 3607250
-          : (transportMatch?.ukkBruto || transportMatch?.ukkKotor || (empMatch?.category?.includes('GURU') ? 3484270 : 2500000)));
-
-  const transportHarian =
-    slip.transportHarian !== undefined
-      ? slip.transportHarian
-      : (isFachrul
-          ? 1325000
-          : (transportMatch?.transporDiterima || transportMatch?.transporBruto || 1250000));
-
-  const uangMakanHarian =
-    slip.uangMakanHarian !== undefined
-      ? slip.uangMakanHarian
-      : (isFachrul
-          ? 650000
-          : (transportMatch?.uangMakanDiterima || 600000));
-
-  const tunjanganKepalaUrusan =
-    slip.tunjanganKepalaUrusan !== undefined
-      ? slip.tunjanganKepalaUrusan
-      : (adjMatch?.tunjanganStaffPimpinan !== undefined ? adjMatch.tunjanganStaffPimpinan : (isFachrul ? 150000 : 0));
-
-  const tunjanganWaliKelas =
-    slip.tunjanganWaliKelas !== undefined
-      ? slip.tunjanganWaliKelas
-      : (adjMatch?.tunjanganWaliKelas || 0);
-
+  const tunjanganKepalaUrusan = adjMatch?.tunjanganStaffPimpinan || slip.tunjanganKepalaUrusan || 0;
   const tunjanganStaffPimpinan = tunjanganKepalaUrusan;
+  const tunjanganWaliKelas = adjMatch?.tunjanganWaliKelas || slip.tunjanganWaliKelas || 0;
   const tunjanganLainUkk = adjMatch?.tunjanganLain || slip.tunjanganLainUkk || 0;
 
   const subtotalPendapatanHarian =
@@ -234,33 +296,11 @@ export function synchronizeSalaryRecordFromAllSources(
     tunjanganWaliKelas +
     tunjanganLainUkk;
 
-  // Potongan B
-  const potonganUkkHarian =
-    slip.potonganUkkHarian !== undefined
-      ? slip.potonganUkkHarian
-      : (isFachrul
-          ? 125000
-          : (transportMatch?.ukkPotongan || 0));
-
-  const potonganKoperasiYpi =
-    slip.potonganKoperasiYpi !== undefined
-      ? slip.potonganKoperasiYpi
-      : (adjMatch?.potonganKoperasiYpi || 0);
-
-  const potonganKesra =
-    slip.potonganKesra !== undefined
-      ? slip.potonganKesra
-      : (adjMatch?.potonganKesra || 0);
-
-  const potonganKoperasiYwam =
-    slip.potonganKoperasiYwam !== undefined
-      ? slip.potonganKoperasiYwam
-      : (adjMatch?.potonganKoperasiYwam || 0);
-
-  const potonganYwAmjp =
-    slip.potonganYwAmjp !== undefined
-      ? slip.potonganYwAmjp
-      : (adjMatch?.potonganYwAmjp || 0);
+  const potonganKoperasiYpi = adjMatch?.potonganKoperasiYpi || slip.potonganKoperasiYpi || 0;
+  const potonganKesra = adjMatch?.potonganKesra || slip.potonganKesra || 0;
+  const potonganKoperasiYwam = adjMatch?.potonganKoperasiYwam || slip.potonganKoperasiYwam || 0;
+  const potonganYwAmjp = adjMatch?.potonganYwAmjp || slip.potonganYwAmjp || 0;
+  const potonganLainUkk = adjMatch?.potonganLain || slip.potonganLainUkk || 0;
 
   const subtotalPotonganHarian =
     potonganUkkHarian +
@@ -268,25 +308,28 @@ export function synchronizeSalaryRecordFromAllSources(
     potonganKesra +
     potonganKoperasiYwam +
     potonganYwAmjp +
-    (slip.potonganLainUkk || 0);
+    potonganLainUkk;
 
-  const totalRekapHarianBersih = Math.max(0, subtotalPendapatanHarian - subtotalPotonganHarian);
+  // UKK Akhir Bersih yang dibayarkan
+  let totalRekapHarianBersih = 0;
+  if (adjMatch) {
+    totalRekapHarianBersih = adjMatch.jumlahDiterima;
+  } else {
+    totalRekapHarianBersih = Math.max(0, subtotalPendapatanHarian - subtotalPotonganHarian);
+  }
 
   // --- C. TOTAL AKHIR YANG DIBAYARKAN ---
-  const jumlahYangDibayarkan = totalGajiBulananBersih + totalRekapHarianBersih;
+  const sumberGajiPokokAkhir = totalGajiBulananBersih;
+  const ukkGrandTotalAwal =
+    adjMatch?.ukkTransportMakan ||
+    transportMatch?.totalJumlahUang ||
+    (ukkKotorHarian + transportHarian + uangMakanHarian);
+  const ukkNetAkhirDiterima = totalRekapHarianBersih;
+  const jumlahYangDibayarkan = sumberGajiPokokAkhir + ukkNetAkhirDiterima;
   const netSalary = jumlahYangDibayarkan;
 
-  const ukkGrandTotalAwal =
-    slip.ukkGrandTotalAwal ||
-    (adjMatch?.ukkTransportMakan || (ukkKotorHarian + transportHarian + uangMakanHarian));
-
-  const ukkNetAkhirDiterima =
-    slip.ukkNetAkhirDiterima ||
-    (adjMatch?.jumlahDiterima || totalRekapHarianBersih);
-
-  const sumberGajiPokokAkhir =
-    slip.sumberGajiPokokAkhir ||
-    (matrixMatch?.netSalaryPaid || totalGajiBulananBersih);
+  const totalEarnings = subtotalPendapatanBulanan + subtotalPendapatanHarian;
+  const totalDeductions = subtotalPotonganBulanan + subtotalPotonganHarian;
 
   return {
     ...slip,
@@ -300,7 +343,7 @@ export function synchronizeSalaryRecordFromAllSources(
     bankAccountNumber,
     bankName,
 
-    // A. Gaji Bulanan
+    // A. Gaji Bulanan (Master Gaji Pokok)
     gajiPokokBulanan,
     tunjanganPengabdian,
     tunjanganKeluarga,
@@ -322,7 +365,7 @@ export function synchronizeSalaryRecordFromAllSources(
     subtotalPotonganBulanan,
     totalGajiBulananBersih,
 
-    // B. Rekap Harian
+    // B. Rekap Harian (Transport, UKK, & Penyesuaian UKK Akhir)
     ukkKotorHarian,
     transportHarian,
     uangMakanHarian,
@@ -337,17 +380,18 @@ export function synchronizeSalaryRecordFromAllSources(
     potonganKesra,
     potonganKoperasiYwam,
     potonganYwAmjp,
+    potonganLainUkk,
     subtotalPotonganHarian,
     totalRekapHarianBersih,
 
-    // C. Hasil
+    // C. Hasil Sinkronisasi Lengkap
     jumlahYangDibayarkan,
     netSalary,
     basicSalary: gajiPokokBulanan,
     transportAllowance: transportHarian,
     mealAllowance: uangMakanHarian,
-    totalEarnings: subtotalPendapatanBulanan + subtotalPendapatanHarian,
-    totalDeductions: subtotalPotonganBulanan + subtotalPotonganHarian,
+    totalEarnings,
+    totalDeductions,
     ukkGrandTotalAwal,
     ukkNetAkhirDiterima,
     sumberGajiPokokAkhir,

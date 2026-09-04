@@ -7,14 +7,42 @@
     <meta name="description" content="Sistem Informasi dan Manajemen Slip Gaji Digital SMP Islam Al Azhar 9 Bekasi - Yayasan Wakaf Al Muhajirien Jakapermai." />
     <meta property="og:title" content="slip gaji id SMPI Al Azhar 9" />
     <meta property="og:description" content="Sistem Informasi dan Manajemen Slip Gaji Digital SMP Islam Al Azhar 9 Bekasi - Yayasan Wakaf Al Muhajirien Jakapermai." />
+    <base href="/smpia9_slipgaji/" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <script type="module" crossorigin src="/assets/index-Bqw-iHtW.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-TcQLEGr0.css">
+    <script type="module" crossorigin src="./assets/index-CLIyzC-A.js?v=20260903b"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-TcQLEGr0.css?v=20260903b">
   </head>
   <body class="bg-slate-50 text-slate-900 font-sans antialiased min-h-screen">
-    <div id="root"></div>
+    <div id="root">
+      <div id="app-preloader" style="min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; background-color: #f8fafc; color: #1e293b; padding: 20px;">
+        <div style="background: white; border-radius: 16px; padding: 32px 28px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05), 0 8px 10px -6px rgba(0,0,0,0.01); border: 1px solid #e2e8f0; max-width: 440px; width: 100%; text-align: center;">
+          <div style="width: 52px; height: 52px; border: 4px solid #e2e8f0; border-top-color: #059669; border-radius: 50%; animation: spin 0.9s linear infinite; margin: 0 auto 20px auto;"></div>
+          <h2 style="font-size: 1.15rem; font-weight: 700; color: #0f172a; margin: 0 0 8px 0;">Memuat Slip Gaji Digital</h2>
+          <p style="font-size: 0.85rem; color: #64748b; margin: 0 0 16px 0;">SMP Islam Al Azhar 9 Bekasi</p>
+          <div id="client-error-box" style="display: none; margin-top: 16px; padding: 12px; background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; color: #b91c1c; font-size: 0.78rem; text-align: left; word-break: break-all; line-height: 1.4;"></div>
+        </div>
+      </div>
+    </div>
+    <style>
+      @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+    <script>
+      window.addEventListener('error', function(e) {
+        var box = document.getElementById('client-error-box');
+        if (box) {
+          box.style.display = 'block';
+          box.innerHTML = '<strong>Terjadi Kendala:</strong> ' + (e.message || (e.target && e.target.src ? 'Gagal memuat: ' + e.target.src : 'Error inisialisasi'));
+        }
+      });
+      window.addEventListener('unhandledrejection', function(e) {
+        var box = document.getElementById('client-error-box');
+        if (box) {
+          box.style.display = 'block';
+          box.innerHTML = '<strong>Kendala Modul:</strong> ' + (e.reason ? (e.reason.message || e.reason) : 'Gagal mengeksekusi modul');
+        }
+      });
+    </script>
   </body>
 </html>
-

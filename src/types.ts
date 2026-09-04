@@ -410,6 +410,7 @@ export interface TransportUkkRecord {
   ukkKinerjaPersen: number; // % Kinerja (misal 97.00, 97.87, 95.53, dll.)
   ukkKotor: number; // Kotor Rp. (Sebelum Potongan)
   ukkBruto?: number; // Alias untuk ukkKotor
+  baseUkkBruto?: number; // Nilai dasar UKK Bruto untuk kehadiran penuh
   ukkPotongan: number; // Potongan Rp.
   ukkDiterima: number; // Diterima Rp. = ukkKotor - ukkPotongan
 

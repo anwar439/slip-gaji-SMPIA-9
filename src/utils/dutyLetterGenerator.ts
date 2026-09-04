@@ -586,6 +586,7 @@ export function generateDutyLetterJpgDataUrl(params: {
  * Generate initial sample Duty Letters across 2025 and 2026
  */
 export function generateInitialDutyLetters(employees: Employee[]): DutyLetter[] {
+  return [];
   const letters: DutyLetter[] = [];
 
   // 1. Surat Tugas ANBK & Asesmen Nasional (Januari 2025)

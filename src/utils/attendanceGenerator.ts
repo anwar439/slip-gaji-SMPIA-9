@@ -310,6 +310,7 @@ export function generateAttendancePdfDataUrl(
  * Generate initial sample attendance records for all employees
  */
 export function generateInitialAttendanceRecords(employees: Employee[]): AttendanceRecord[] {
+  return [];
   const periods = [
     { period: '2025-01', label: 'Januari 2025' },
     { period: '2024-12', label: 'Desember 2024' },

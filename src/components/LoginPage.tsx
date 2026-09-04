@@ -9,33 +9,16 @@ import {
   ArrowRight,
   Eye,
   EyeOff,
-  Building2,
-  CheckCircle2,
   AlertCircle,
-  Sparkles,
   School,
-  FileText,
-  BadgeCheck,
   BookmarkCheck,
-  Trash2,
-  History,
-  Check,
+  BadgeCheck,
 } from 'lucide-react';
 
-interface SavedCredential {
-  id: string;
-  username: string;
-  role: 'employee' | 'admin';
-  displayName?: string;
-  password?: string;
-  savedAt: string;
-}
-
-const REMEMBERED_ACCOUNTS_KEY = 'slip_gaji_saved_accounts_v2';
-const LAST_LOGIN_CREDS_KEY = 'slip_gaji_last_login_creds_v2';
+const LAST_LOGIN_USER_KEY = 'slip_gaji_last_username';
 
 export const LoginPage: React.FC = () => {
-  const { loginWithCredentials, employees } = useAuth();
+  const { loginWithCredentials } = useAuth();
   const { companyProfile } = useSalary();
 
   const [activeTab, setActiveTab] = useState<'employee' | 'admin'>('employee');
@@ -45,63 +28,18 @@ export const LoginPage: React.FC = () => {
   const [rememberMe, setRememberMe] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [savedAccounts, setSavedAccounts] = useState<SavedCredential[]>([]);
 
-  // Load saved accounts on mount
+  // Load saved username if remember me was used
   useEffect(() => {
     try {
-      const stored = localStorage.getItem(REMEMBERED_ACCOUNTS_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) {
-          setSavedAccounts(parsed);
-        }
-      }
-
-      const lastCreds = localStorage.getItem(LAST_LOGIN_CREDS_KEY);
-      if (lastCreds) {
-        const parsedLast = JSON.parse(lastCreds);
-        if (parsedLast && parsedLast.username) {
-          setUsername(parsedLast.username);
-          setPassword(parsedLast.password || '');
-          if (parsedLast.role) setActiveTab(parsedLast.role);
-        }
+      const savedUser = localStorage.getItem(LAST_LOGIN_USER_KEY);
+      if (savedUser) {
+        setUsername(savedUser);
       }
     } catch {
       // Ignore
     }
   }, []);
-
-  const handleSelectSavedAccount = (acc: SavedCredential) => {
-    setActiveTab(acc.role);
-    setUsername(acc.username);
-    setPassword(acc.password || '');
-    setErrorMessage('');
-  };
-
-  const handleDeleteSavedAccount = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const updated = savedAccounts.filter((a) => a.id !== id);
-    setSavedAccounts(updated);
-    try {
-      localStorage.setItem(REMEMBERED_ACCOUNTS_KEY, JSON.stringify(updated));
-    } catch {
-      // Ignore
-    }
-  };
-
-  // Quick fill helper
-  const handleQuickFillEmployee = (nip: string, defaultPass: string) => {
-    setUsername(nip);
-    setPassword(defaultPass);
-    setErrorMessage('');
-  };
-
-  const handleQuickFillAdmin = (user: string, pass: string) => {
-    setUsername(user);
-    setPassword(pass);
-    setErrorMessage('');
-  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -114,53 +52,11 @@ export const LoginPage: React.FC = () => {
         setErrorMessage(result.message);
         setIsLoading(false);
       } else {
-        // Save credential if Remember Me is checked
         try {
           if (rememberMe) {
-            // Save last creds
-            localStorage.setItem(
-              LAST_LOGIN_CREDS_KEY,
-              JSON.stringify({ username, password, role: activeTab })
-            );
-
-            // Find name if employee
-            let displayName = username;
-            if (activeTab === 'employee') {
-              const emp = employees.find(
-                (x) => x.nip?.toLowerCase().trim() === username.toLowerCase().trim()
-              );
-              if (emp) displayName = emp.name;
-            } else if (username === 'kepsek123') {
-              displayName = 'Kepala Sekolah (Amirudin, M.Pd.)';
-            } else if (username === 'wakasek123') {
-              displayName = 'Wakil Kepala Sekolah';
-            } else {
-              displayName = 'Admin TU';
-            }
-
-            const existingIndex = savedAccounts.findIndex(
-              (a) => a.username.toLowerCase() === username.toLowerCase() && a.role === activeTab
-            );
-
-            const newAcc: SavedCredential = {
-              id: `${activeTab}-${username}`,
-              username,
-              password,
-              role: activeTab,
-              displayName,
-              savedAt: new Date().toISOString(),
-            };
-
-            let updatedList: SavedCredential[];
-            if (existingIndex >= 0) {
-              updatedList = [...savedAccounts];
-              updatedList[existingIndex] = newAcc;
-            } else {
-              updatedList = [newAcc, ...savedAccounts].slice(0, 10);
-            }
-
-            setSavedAccounts(updatedList);
-            localStorage.setItem(REMEMBERED_ACCOUNTS_KEY, JSON.stringify(updatedList));
+            localStorage.setItem(LAST_LOGIN_USER_KEY, username);
+          } else {
+            localStorage.removeItem(LAST_LOGIN_USER_KEY);
           }
         } catch {
           // Ignore
@@ -168,8 +64,6 @@ export const LoginPage: React.FC = () => {
       }
     }, 300);
   };
-
-  const filteredSavedAccounts = savedAccounts.filter((a) => a.role === activeTab);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-emerald-950 via-slate-900 to-emerald-900 flex flex-col justify-between text-slate-100 selection:bg-emerald-500 selection:text-white">
@@ -252,15 +146,8 @@ export const LoginPage: React.FC = () => {
               onClick={() => {
                 setActiveTab('employee');
                 setErrorMessage('');
-                // check if we have saved employee creds
-                const lastEmp = savedAccounts.find((a) => a.role === 'employee');
-                if (lastEmp) {
-                  setUsername(lastEmp.username);
-                  setPassword(lastEmp.password || '');
-                } else {
-                  setUsername('');
-                  setPassword('');
-                }
+                setUsername('');
+                setPassword('');
               }}
               className={`py-2.5 px-3 rounded-2xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
                 activeTab === 'employee'
@@ -277,15 +164,8 @@ export const LoginPage: React.FC = () => {
               onClick={() => {
                 setActiveTab('admin');
                 setErrorMessage('');
-                // check if we have saved admin creds
-                const lastAdmin = savedAccounts.find((a) => a.role === 'admin');
-                if (lastAdmin) {
-                  setUsername(lastAdmin.username);
-                  setPassword(lastAdmin.password || '');
-                } else {
-                  setUsername('kepsek123');
-                  setPassword('kepsek123456');
-                }
+                setUsername('');
+                setPassword('');
               }}
               className={`py-2.5 px-3 rounded-2xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
                 activeTab === 'admin'
@@ -307,45 +187,6 @@ export const LoginPage: React.FC = () => {
               </div>
             )}
 
-            {/* Saved Accounts Pill Selector if any exist */}
-            {filteredSavedAccounts.length > 0 && (
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
-                <div className="flex items-center justify-between text-[11px] font-bold text-slate-600">
-                  <span className="flex items-center gap-1.5 text-emerald-800">
-                    <History className="w-3.5 h-3.5 text-emerald-600" /> Akun Tersimpan di Perangkat Ini:
-                  </span>
-                  <span className="text-[10px] text-slate-400 font-normal">Klik untuk mengisi</span>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {filteredSavedAccounts.map((acc) => {
-                    const isSelected = username.toLowerCase() === acc.username.toLowerCase();
-                    return (
-                      <div
-                        key={acc.id}
-                        onClick={() => handleSelectSavedAccount(acc)}
-                        className={`group inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-medium cursor-pointer transition-all border ${
-                          isSelected
-                            ? 'bg-emerald-100 text-emerald-900 border-emerald-300 font-bold shadow-2xs'
-                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100 hover:border-slate-300'
-                        }`}
-                      >
-                        <span className="truncate max-w-[130px]">{acc.displayName || acc.username}</span>
-                        {isSelected && <Check className="w-3 h-3 text-emerald-600 shrink-0" />}
-                        <button
-                          type="button"
-                          onClick={(e) => handleDeleteSavedAccount(acc.id, e)}
-                          title="Hapus dari daftar tersimpan"
-                          className="text-slate-400 hover:text-rose-600 p-0.5 rounded-full hover:bg-rose-50"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
             <div>
               <label className="text-xs font-bold text-slate-700 block mb-1">
                 {activeTab === 'employee' ? 'Nomor Induk Pegawai (NIP)' : 'Username Administrator'}
@@ -358,7 +199,7 @@ export const LoginPage: React.FC = () => {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder={
-                    activeTab === 'employee' ? 'Masukkan NIP (Contoh: 102041398)' : 'Masukkan username (kepsek123 / wakasek123)'
+                    activeTab === 'employee' ? 'Masukkan NIP Anda' : 'Masukkan username administrator'
                   }
                   className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-emerald-500 focus:bg-white focus:outline-none transition-all placeholder:text-slate-400"
                 />
@@ -409,7 +250,7 @@ export const LoginPage: React.FC = () => {
                 />
                 <span className="text-xs font-medium text-slate-700 flex items-center gap-1">
                   <BookmarkCheck className="w-3.5 h-3.5 text-emerald-600" />
-                  Simpan User & Password di browser ini
+                  Ingat username di perangkat ini
                 </span>
               </label>
             </div>
@@ -439,64 +280,6 @@ export const LoginPage: React.FC = () => {
               <span>{isLoading ? 'Memverifikasi...' : activeTab === 'employee' ? 'Masuk ke Portal Pegawai' : 'Masuk sebagai Admin'}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
-
-            {/* Quick Fill / Demo Credentials Accordion */}
-            <div className="pt-2 border-t border-slate-100">
-              <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center justify-between">
-                <span>Akun Cepat Terdaftar:</span>
-                <span className="text-[10px] text-emerald-600 font-normal">Klik untuk mengisi</span>
-              </div>
-
-              {activeTab === 'employee' ? (
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleQuickFillEmployee('102041398', '102041398')}
-                    className="p-2 text-left bg-slate-50 hover:bg-emerald-50 hover:border-emerald-300 border border-slate-200 rounded-xl transition-all"
-                  >
-                    <div className="font-bold text-xs text-slate-800 truncate">Amirudin, M.Pd.</div>
-                    <div className="text-[10px] text-slate-500 font-mono">NIP: 102041398</div>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleQuickFillEmployee('107101784', '107101784')}
-                    className="p-2 text-left bg-slate-50 hover:bg-emerald-50 hover:border-emerald-300 border border-slate-200 rounded-xl transition-all"
-                  >
-                    <div className="font-bold text-xs text-slate-800 truncate">M. Anwar Pratama</div>
-                    <div className="text-[10px] text-slate-500 font-mono">NIP: 107101784</div>
-                  </button>
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleQuickFillAdmin('kepsek123', 'kepsek123456')}
-                    className="p-2.5 text-left bg-slate-50 hover:bg-emerald-50 hover:border-emerald-300 border border-slate-200 rounded-xl transition-all"
-                  >
-                    <div className="font-bold text-xs text-slate-900 flex items-center justify-between">
-                      <span>Admin 1 (Kepsek)</span>
-                      <span className="text-[9px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded">Utama</span>
-                    </div>
-                    <div className="text-[10px] text-slate-600 font-mono mt-0.5">User: kepsek123</div>
-                    <div className="text-[10px] text-slate-400 font-mono">Pass: kepsek123456</div>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleQuickFillAdmin('wakasek123', 'wakasek123456')}
-                    className="p-2.5 text-left bg-slate-50 hover:bg-emerald-50 hover:border-emerald-300 border border-slate-200 rounded-xl transition-all"
-                  >
-                    <div className="font-bold text-xs text-slate-900 flex items-center justify-between">
-                      <span>Admin 2 (Wakasek)</span>
-                      <span className="text-[9px] bg-blue-100 text-blue-800 font-bold px-1.5 py-0.2 rounded">Wakasek</span>
-                    </div>
-                    <div className="text-[10px] text-slate-600 font-mono mt-0.5">User: wakasek123</div>
-                    <div className="text-[10px] text-slate-400 font-mono">Pass: wakasek123456</div>
-                  </button>
-                </div>
-              )}
-            </div>
           </form>
 
           {/* Footer note */}

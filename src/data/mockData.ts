@@ -1178,7 +1178,7 @@ export const INITIAL_EMPLOYEES: Employee[] = [
   },
 ];
 
-function generateSalaryRecord(
+export function generateSalaryRecord(
   emp: Employee,
   period: string,
   periodLabel: string,
@@ -1352,6 +1352,29 @@ export function generateInitialSalaryRecords(): SalaryRecord[] {
   return records;
 }
 
+export const INDONESIAN_MONTHS = [
+  { value: '01', name: 'Januari' },
+  { value: '02', name: 'Februari' },
+  { value: '03', name: 'Maret' },
+  { value: '04', name: 'April' },
+  { value: '05', name: 'Mei' },
+  { value: '06', name: 'Juni' },
+  { value: '07', name: 'Juli' },
+  { value: '08', name: 'Agustus' },
+  { value: '09', name: 'September' },
+  { value: '10', name: 'Oktober' },
+  { value: '11', name: 'November' },
+  { value: '12', name: 'Desember' },
+];
+
+export function getIndonesianPeriodLabel(periodStr: string): string {
+  if (!periodStr || !periodStr.includes('-')) return periodStr;
+  const [yearStr, monthStr] = periodStr.split('-');
+  const monthMatch = INDONESIAN_MONTHS.find((m) => m.value === monthStr.padStart(2, '0'));
+  const monthName = monthMatch ? monthMatch.name : `Bulan ${monthStr}`;
+  return `${monthName} ${yearStr}`;
+}
+
 export const AVAILABLE_PERIODS = [
   // Tahun Ajaran / Fiskal 2026/2027 (Juli 2026 - Juni 2027)
   { value: '2026-08', label: 'Agustus 2026', isNew: true },
@@ -1366,7 +1389,29 @@ export const AVAILABLE_PERIODS = [
   { value: '2027-04', label: 'April 2027' },
   { value: '2027-05', label: 'Mei 2027' },
   { value: '2027-06', label: 'Juni 2027' },
-  // Periode Tambahan
+  // Tahun 2027/2028 (Melebihi 2027)
+  { value: '2027-07', label: 'Juli 2027' },
+  { value: '2027-08', label: 'Agustus 2027' },
+  { value: '2027-09', label: 'September 2027' },
+  { value: '2027-10', label: 'Oktober 2027' },
+  { value: '2027-11', label: 'November 2027' },
+  { value: '2027-12', label: 'Desember 2027' },
+  { value: '2028-01', label: 'Januari 2028' },
+  { value: '2028-02', label: 'Februari 2028' },
+  { value: '2028-03', label: 'Maret 2028' },
+  { value: '2028-04', label: 'April 2028' },
+  { value: '2028-05', label: 'Mei 2028' },
+  { value: '2028-06', label: 'Juni 2028' },
+  { value: '2028-07', label: 'Juli 2028' },
+  { value: '2028-08', label: 'Agustus 2028' },
+  { value: '2028-09', label: 'September 2028' },
+  { value: '2028-10', label: 'Oktober 2028' },
+  { value: '2028-11', label: 'November 2028' },
+  { value: '2028-12', label: 'Desember 2028' },
+  { value: '2029-01', label: 'Januari 2029' },
+  { value: '2029-07', label: 'Juli 2029' },
+  { value: '2030-01', label: 'Januari 2030' },
+  // Periode Tambahan Lalu
   { value: '2026-06', label: 'Juni 2026' },
   { value: '2026-05', label: 'Mei 2026' },
   { value: '2025-02', label: 'Februari 2025' },

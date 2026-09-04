@@ -25,6 +25,7 @@ import {
 import { SalaryRecord } from '../../types';
 import { ManualSalarySlipModal } from './ManualSalarySlipModal';
 import { PeriodDateRangeModal } from '../PeriodDateRangeModal';
+import { MonthYearPeriodPicker } from '../MonthYearPeriodPicker';
 import { synchronizeSalaryRecordFromAllSources } from '../../utils/salarySynchronizer';
 
 export const SalaryManagementTable: React.FC = () => {
@@ -44,9 +45,11 @@ export const SalaryManagementTable: React.FC = () => {
     transportUkkRecords,
     ukkAdjustmentRecords,
     employees,
+    initializePeriodSalarySlips,
   } = useSalary();
 
   const currentPeriodConfig = getCurrentPeriodConfig();
+  const periodsWithSalaryData = Array.from(new Set(records.map((r) => r.period)));
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDept, setSelectedDept] = useState('ALL');
@@ -116,36 +119,29 @@ export const SalaryManagementTable: React.FC = () => {
       {/* 1. Header Toolbar & Period Selector */}
       <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs flex flex-col xl:flex-row xl:items-center justify-between gap-4">
         <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-          <div>
-            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-              Periode Penggajian:
-            </label>
-            <div className="flex items-center gap-2">
-              <select
-                id="select-admin-period"
-                value={selectedPeriod}
-                onChange={(e) => setSelectedPeriod(e.target.value)}
-                aria-label="Pilih Periode Penggajian"
-                className="bg-slate-900 text-white text-xs sm:text-sm font-bold py-2.5 px-3.5 rounded-xl border border-slate-800 focus:ring-2 focus:ring-blue-500 focus:outline-hidden cursor-pointer"
-              >
-                {availablePeriods.map((p) => (
-                  <option key={p.value} value={p.value}>
-                    {p.label} {p.isNew ? '(Baru)' : ''}
-                  </option>
-                ))}
-              </select>
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap items-end gap-2">
+              <MonthYearPeriodPicker
+                id="salary-slip-period-picker"
+                selectedPeriod={selectedPeriod}
+                onPeriodChange={(newPeriod) => setSelectedPeriod(newPeriod)}
+                availablePeriods={availablePeriods}
+                periodsWithData={periodsWithSalaryData}
+                theme="light"
+                label="Periode Penggajian:"
+              />
 
               <button
                 id="btn-change-date-range"
                 onClick={() => setIsPeriodModalOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl text-xs font-bold transition-colors border border-blue-200"
+                className="inline-flex items-center gap-1.5 px-3 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl text-xs font-bold transition-colors border border-blue-200 mb-6"
                 title="Atur rentang tanggal (dari tgl s/d tgl)"
               >
                 <Calendar className="w-4 h-4 text-blue-600" />
-                <span>Atur Rentang Tgl</span>
+                <span>Rentang Tgl</span>
               </button>
             </div>
-            <div className="text-[11px] text-slate-500 mt-1 font-mono">
+            <div className="text-[11px] text-slate-500 font-mono -mt-1">
               Rentang: <strong className="text-slate-700">{currentPeriodConfig.startDate}</strong> s/d <strong className="text-slate-700">{currentPeriodConfig.endDate}</strong>
             </div>
           </div>
@@ -186,9 +182,10 @@ export const SalaryManagementTable: React.FC = () => {
             id="btn-add-manual-slip"
             onClick={handleOpenAddNewModal}
             className="inline-flex items-center gap-1.5 px-3.5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-blue-100"
+            title="Tambah slip gaji baru dengan memilih nama pegawai terdaftar"
           >
             <Plus className="w-4 h-4" />
-            <span>+ Tambah Slip Manual</span>
+            <span>+ Buat Slip dari Pegawai</span>
           </button>
 
           <button
@@ -278,12 +275,32 @@ export const SalaryManagementTable: React.FC = () => {
               {filteredRecords.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="py-12 text-center text-slate-400">
-                    <div className="max-w-md mx-auto space-y-2">
+                    <div className="max-w-md mx-auto space-y-3">
                       <AlertCircle className="w-8 h-8 text-slate-300 mx-auto" />
-                      <div className="font-bold text-slate-600">Tidak ada data slip gaji ditemukan</div>
-                      <p className="text-xs text-slate-400">
-                        Belum ada slip untuk periode ini. Silakan klik <strong>+ Tambah Slip Manual</strong> atau upload file Excel di menu Upload.
+                      <div className="font-bold text-slate-700 text-sm">Tidak ada data slip gaji untuk periode ini</div>
+                      <p className="text-xs text-slate-500 leading-relaxed">
+                        Belum ada slip untuk periode <strong>{currentPeriodConfig.label}</strong>. Anda dapat menginisialisasi slip secara otomatis dari data pegawai aktif atau menambahkan slip secara manual.
                       </p>
+                      {rawPeriodRecords.length === 0 && (
+                        <div className="pt-2 flex flex-wrap items-center justify-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => initializePeriodSalarySlips(selectedPeriod)}
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs transition-colors shadow-xs"
+                          >
+                            <Sparkles className="w-3.5 h-3.5" />
+                            Inisialisasi Slip {currentPeriodConfig.label}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setIsManualModalOpen(true)}
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-xs transition-colors"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            Tambah Manual
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -384,7 +401,7 @@ export const SalaryManagementTable: React.FC = () => {
                               id={`btn-edit-slip-${rec.id}`}
                               onClick={() => handleOpenEditModal(rec)}
                               className="p-1.5 text-slate-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors"
-                              title="Edit Rincian Slip Manual"
+                              title="Lihat & Verifikasi Rincian Slip (Tersinkronisasi Master & UKK)"
                             >
                               <Edit className="w-4 h-4" />
                             </button>
