@@ -10,6 +10,32 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script>
+      // Auto redirect ke trailing slash jika dibuka tanpa slash agar file assets di subfolder selalu ditemukan
+      if (!location.pathname.endsWith('/') && !location.pathname.split('/').pop().includes('.')) {
+        location.replace(location.pathname + '/' + location.search + location.hash);
+      }
+      // Safeguard jika file development index.html terunggah ke production
+      window.addEventListener('error', function(e) {
+        var isMainTsx = (e.filename && e.filename.includes('main.tsx')) || 
+                        (e.message && e.message.includes('main.tsx')) ||
+                        (e.target && e.target.src && e.target.src.includes('main.tsx'));
+        if (isMainTsx) {
+          var root = document.getElementById('root');
+          if (root) {
+            root.innerHTML = '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:sans-serif;background:#f8fafc;padding:24px;text-align:center;">' +
+              '<div style="background:white;padding:32px;border-radius:16px;box-shadow:0 10px 25px rgba(0,0,0,0.05);max-width:520px;border:1px solid #e2e8f0;">' +
+              '<div style="font-size:40px;margin-bottom:12px;">⚠️</div>' +
+              '<h2 style="color:#0f172a;font-size:18px;margin:0 0 10px 0;font-weight:700;">File index.html Tertukar (Development vs Production)</h2>' +
+              '<p style="color:#64748b;font-size:14px;line-height:1.6;margin:0 0 16px 0;">' +
+              'Anda mengunggah file <strong>index.html</strong> dari folder utama (source code).<br>' +
+              'File yang harus di-upload ke cPanel adalah file <strong>index.html</strong> yang berada di dalam folder <strong>dist</strong> beserta folder <strong>assets</strong>-nya.' +
+              '</p>' +
+              '</div></div>';
+          }
+        }
+      }, true);
+    </script>
   </head>
   <body class="bg-slate-50 text-slate-900 font-sans antialiased min-h-screen">
     <div id="root"></div>

@@ -29,6 +29,10 @@ export interface Employee {
   baseSalary: number; // Standard basic salary
   dailyRate?: number; // Tarif harian jika berlaku
   password?: string; // Password login mandiri pegawai (diisi/dikelola Admin)
+  status?: string;
+  grade?: string;
+  positionAllowance?: number;
+  unitKerja?: string;
 }
 
 export interface AttendanceData {
@@ -89,7 +93,7 @@ export interface SalaryRecord {
   netSalary: number; // Gaji Bersih (Total Earnings - Total Deductions)
   notes?: string;
   publishedAt?: string;
-  uploadedAt: string;
+  uploadedAt?: string;
 
   // 4. PENYESUAIAN TAMBAHAN TUNJANGAN & POTONGAN UKK (Rekapitulasi Akhir)
   bankAccountNumber?: string; // No. Rekening Bank Pegawai (e.g. 7000742125)
@@ -236,6 +240,7 @@ export interface SalaryCalculationSource {
   indexValueOld: number; // 123,500
   indexValueNew: number; // 125,000
   indexDiff: number; // 1,500
+  unitValue?: number;
   performanceScorePercent: number; // 100
   performanceBasicSalary: number; // Gapok Nilai Kinerja (Angka * Indeks * Prosen)
   positionAllowanceBasic: number; // Tunjangan Jabatan dasar (Rp 3.500.000, 3.000.000)
@@ -429,6 +434,8 @@ export interface TransportUkkRecord {
   // 4. HASIL AKHIR (JUMLAH Rp.)
   totalJumlahUang: number; // Grand Total = ukkDiterima + transporDiterima + uangMakanDiterima
   grandTotal?: number; // Alias untuk totalJumlahUang
+  totalDiterimaUkk?: number; // Alias
+  transportUkkDiterima?: number; // Alias
 
   period: string; // Format "YYYY-MM" e.g. "2026-08"
   periodLabel?: string; // e.g. "Agustus 2026 (16 Juli 2026 - 13 Agustus 2026)"

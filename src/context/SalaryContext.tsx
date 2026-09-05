@@ -299,13 +299,14 @@ export const SalaryProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     | 'employees'
     | 'matrix'
     | 'transport-ukk'
+    | 'ukk-adjustments'
     | 'attendance'
     | 'surat-tugas'
     | 'settings'
     | 'logs'
   >('slips');
   const [activeEmployeeTab, setActiveEmployeeTab] = useState<
-    'ringkasan' | 'riwayat' | 'skema' | 'transport-ukk' | 'absensi' | 'surat-tugas' | 'bantuan'
+    'ringkasan' | 'riwayat' | 'skema' | 'transport-ukk' | 'ukk-adjustments' | 'absensi' | 'surat-tugas' | 'bantuan'
   >('ringkasan');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState<boolean>(false);
   const [activeSlipModal, setActiveSlipModal] = useState<SalaryRecord | null>(null);
@@ -1106,7 +1107,7 @@ export const SalaryProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           nip: emp.nip && emp.nip !== '-' ? emp.nip : `10204${1400 + idx}`,
           name: emp.name,
           jabatan: emp.position,
-          unitKerja: emp.unitKerja || emp.department || 'Unit Utama',
+          unitKerja: ((emp as unknown as { unitKerja?: string }).unitKerja) || emp.department || 'Unit Utama',
           employeeStatus: emp.employeeStatus || 'GTY',
           hariKerja: 22,
           jumlahHadir: 22,
